@@ -1,0 +1,159 @@
+项目2：数据库系统开发  
+由教学组设计
+演示由ZHANG Ziyang在2025年提供，由HUANG Liang在2026年修改
+成果展示时间在第15周
+
+项目介绍：  
+响应教育部强调数据库系统核心能力培养的101计划，并推动教学从“使用数据库”向“构建数据库”转变，本项目侧重于数据库内核实现。通过模块化的实验任务，学生将深入理解数据库管理系统（DBMS）的核心原理与工程实践，培养系统级开发能力。
+
+Github资源：https://github.com/CS307-Database/engine-project
+
+本项目基于提供的Java框架（一些核心模块已实现），涉及开发一个简单的数据库系统，包括以下模块：SQL解析、逻辑算子、物理算子、存储层设计以及数据转换。要求学生理解该框架，并基于提供的内容和代码示例完成或扩展这些模块。该框架目前包含以下功能：
+磁盘I/O读写（存储层设计）
+支持 CREATE TABLE ， INSERT ， UPDATE 语句
+等值过滤（ WHERE ）和逻辑操作（ AND ）
+全表扫描（ SELECT * 和 SeqScan 操作）
+学生可以使用提供的项目结构，也可以构建自己全新的结构，只要能满足任务的要求即可。
+
+数据准备  
+对于项目展示，必须创建至少一个包含30行以上数据的测试表，例如：
+建表
+insert
+create table t( id int, name char, age int, gpa float);
+Select
+Update
+
+评分标准  
+基础部分：共80分，学生必须实现。
+进阶部分：共20分。
+进阶部分位于 2.2 连接算子及进阶SeqScan计算 和 3. 索引。这些部分的分数可以互相转移，但最多溢出5分。
+4. 事务部分价值8分，只能溢出到进阶部分中。
+对于原代码中的bug，您可以提交pull request，并且可以获得进阶部分的分数。
+展示答辩环节：该环节包括但不限于以下形式：
+回答问题，例如选择题。
+说明设计过程。
+现场重写代码。
+如果回答错误，该部分及其相关的基础和进阶要求将不予给分。
+
+任务 1：存储管理（20分）  
+1. 页面置换策略（最近最少使用 - LRU）算法（10分）
+完成 LRUReplacer 中的 Victim() 、 Pin(int frameId) 和 Unpin(int frameId) 方法，并通过 LRUReplacerTest JUnit测试。
+2. Clock 置换算法
+实现 PageReplacer 接口，完成 ClockReplacer 中的 Victim() 、 Pin(int frameId) 、
+insert into t (id, name, age, gpa) values (1, 'a', 18, 3.6);
+insert into t (id, name, age, gpa) values (2, 'b', 19, 3.65);
+insert into t (id, name, age, gpa) values (3, 'abb', 18, 3.86);
+insert into t (id, name, age, gpa) values (4, 'abc', 19, 2.34);
+insert into t (id, name, age, gpa) values (5, 'ef', 20, 3.25);
+insert into t (id, name, age, gpa) values (6, 'bbc', 21, 3.20);
+select * from t;
+select * from t where t.age = 19;
+update t set t.name = 'apple' where t.id = 1;
+和 Unpin(int frameId) 方法，并通过 ClockReplacerTest JUnit测试。
+
+任务 2：查询处理（60分）  
+1. 基础部分：SQL语句实现（50分）  
+目前的教学框架支持以下功能，学生可以进行扩展：
+1. 表管理
+支持 CREATE TABLE 语句，并且至少支持以下数据类型：
+INT （整数）
+VARCHAR （可变长字符串）
+DOUBLE （双精度浮点数）
+表必须持久化存储在磁盘上，以确保在系统重启后数据得以保留。
+2. 数据操作
+支持 INSERT 和 UPDATE 操作。
+至少应插入和维护30条记录，以测试系统的稳定性和存储管理。
+所有数据修改操作（插入、删除、更新）必须实时写入磁盘以保证持久性。
+
+1.1 基础 DDL（数据定义语言）操作（20分）  
+对于以下所有操作，无论成功还是失败，程序执行都不能受到影响，并应生成适当的日志。
+支持 show tables 命令。预期输出：
+支持 describe table 命令。返回表名、列名和数据类型。如果未找到表，应该抛出异常或记录错误。
+show tables;
+21:29:38.281 INFO: |-----------|
+21:29:38.281 INFO: |  Tables   |
+21:29:38.281 INFO: |-----------|
+21:29:38.300 INFO: |     t     |
+21:29:38.301 INFO: |     a     |
+21:29:38.301 INFO: |-----------|
+describe t;
+支持 DROP TABLE 操作，无论表是否存在，都要有适当的处理及日志记录。
+支持 EXPLAIN 用于查询计划展示。示例：
+Output:
+...
+
+1.2 逻辑和物理算子（20分）  
+支持投影操作（带有 SELECT 的列选择，即 ProjectOperator ），允许选择任意列，而不仅仅是 SELECT * 。
+实现全表扫描及条件过滤（WHERE 子句解析），支持：
+任意列
+AND ， OR 逻辑
+等值及范围查询： = ， > ， >= ， < ， <=
+示例：
+21:35:18.211 INFO: |-------------------------|
+21:35:18.212 INFO: |    Field   |   Type     |
+21:35:18.212 INFO: |    id      |   int      |
+21:35:18.212 INFO: |    name    |   char     |
+21:35:18.212 INFO: |    age     |   int      |
+21:35:18.212 INFO: |    gpa     |   float    |
+21:35:18.212 INFO: |-------------------------|
+explain select t.id, t.name from t where t.age>18;
+21:38:18.602 INFO: ProjectOperator(selectItems=[t.id, t.name])
+└── LogicalFilterOperator(condition=t.age > 18)
+        └── TableScanOperator(table=t)
+select t.id, t.name from t where t.age > 18;
+21:39:20.082 INFO: ┌───────────────┐───────────────┐
+21:39:20.099 INFO: |     t.id      |    t.name     |
+21:39:20.099 INFO: +───────────────+───────────────+
+21:39:20.143 INFO: |       4       |      abc      |
+21:39:20.143 INFO: +───────────────+───────────────+
+21:39:20.143 INFO: |       6       |      bbc      |
+21:39:20.144 INFO: +───────────────+───────────────+
+select * from t1 where col1 = xxx or col2 = yyy;
+select * from t1 where col1 > xxx;
+select * from t1 where col1 > xxx and col2 = yyy;
+支持 DELETE 操作，全面支持条件（AND，OR，等值和范围过滤）。（10分）。展示环节答辩
+
+1.3 顺序扫描实现（10分）  
+基础：顺序扫描实现（SeqScan）展示环节答辩
+理解提供的 SeqScan 。
+能够详细说明其实现和执行逻辑
+实现细节或回答问题不仅会在展示期间进行评估。
+支持 Count 操作，全面支持条件（AND，OR，等值和范围过滤）。（10分）
+说明你关于 count 操作的设计。展示环节答辩
+
+2. 进阶：连接算子及进阶SeqScan计算（10分）
+支持聚合函数： MAX() ， MIN() ， GROUP BY ，
+支持 ORDER BY 。
+实现用于等值连接的 Nested Loop Join
+支持 IN ， NOT IN ， EXISTS
+支持部分 ALTER TABLE 操作
+实现查询优化器以针对不同的 SQL 语句生成不同的查询计划
+展示环节答辩（未能满足这一要求，任务2进阶部分将不会得分。）
+
+任务 3（进阶）：索引（10分）  
+实现内存中的 B+ 树索引。
+1. 索引支持：
+识别 create index xx on t(col) 语句及 drop index xx 语句，并且相应的 JSON 文件也会被修改。
+在项目框架内，基于索引构建内存 B+ 树，并且能够打印各个节点。
+支持创建多个索引并构建多棵 B+ 树。
+支持在单次项目运行期间动态创建 B+ 树，并进行 insert 和 delete 操作。
+2. 验证：
+使用足够大的数据集进行测试
+确保索引功能的正确性及性能
+展示环节答辩
+注：本任务考察学生对查询优化器核心组件的理解与实现，需要具备相关的理论知识和工程实践能力。
+
+任务 4（进阶）：事务（共8分）  
+1. 通过 TransactionManagerTest 中的所有测试用例。（2分）
+在 TransactionManagerApi 中实现 rollback() ， savepoint(String savepointName) ， rollbackToSavepoint(String savepointName) ，以及 releaseSavepoint(String savepointName) 方法，并且完成 TransactionManagerTest 中的所有测试用例。
+展示环节答辩。（未能满足这一要求，任务4将不会得分。）
+说明在执行 begin 命令时如何设计快照。
+说明执行 commit 命令会如何影响逻辑和物理结构。
+说明你对于 savepoint 和 rollback 的设计。
+
+任务 5：展示评比（10分）  
+1. 完善的命令行交互界面，用于输入命令与展示结果
+2. 尽可能设计全面的异常处理机制。
+3. 清晰有效的课堂展示及表达技巧
+4. 在规定时间内完成
+5. 团队成员无迟到或引发拖延的情况
