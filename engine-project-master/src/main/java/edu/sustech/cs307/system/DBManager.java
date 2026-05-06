@@ -98,11 +98,36 @@ public class DBManager {
         Logger.info(border);
     }
 
-    public void descTable(String table_name) {
-        throw new RuntimeException("Not implemented yet");
-        //todo: complete describe table
-        // | -- TABLE Field -- | -- Column Type --|
-        // | --  ${table field} --| -- ${table type} --|
+    public void descTable(String table_name) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(table_name);
+        ArrayList<ColumnMeta> columns = new ArrayList<>(tableMeta.columns_list);
+        columns.sort((left, right) -> Integer.compare(left.offset, right.offset));
+
+        String fieldHeader = "TABLE Field";
+        String typeHeader = "Column Type";
+        int fieldWidth = fieldHeader.length();
+        int typeWidth = typeHeader.length();
+
+        for (ColumnMeta column : columns) {
+            fieldWidth = Math.max(fieldWidth, column.name.length());
+            typeWidth = Math.max(typeWidth, column.type.toString().length());
+        }
+
+        fieldWidth += 2;
+        typeWidth += 2;
+
+        String border = "|" + StringUtils.repeat("-", fieldWidth) + "|" + StringUtils.repeat("-", typeWidth) + "|";
+        Logger.info(border);
+        Logger.info("|{}|{}|",
+                StringUtils.center(fieldHeader, fieldWidth, ' '),
+                StringUtils.center(typeHeader, typeWidth, ' '));
+        Logger.info(border);
+        for (ColumnMeta column : columns) {
+            Logger.info("|{}|{}|",
+                    StringUtils.center(column.name, fieldWidth, ' '),
+                    StringUtils.center(column.type.toString(), typeWidth, ' '));
+        }
+        Logger.info(border);
     }
 
     /**
