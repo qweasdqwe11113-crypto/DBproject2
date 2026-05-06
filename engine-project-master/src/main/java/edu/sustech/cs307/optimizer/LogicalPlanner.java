@@ -27,6 +27,8 @@ import edu.sustech.cs307.exception.DBException;
 public class LogicalPlanner {
     private static final Pattern BEGIN_PATTERN = Pattern.compile("(?i)^BEGIN(?:\\s+(?:WORK|TRANSACTION))?$");
     private static final Pattern START_TRANSACTION_PATTERN = Pattern.compile("(?i)^START\\s+TRANSACTION$");
+    private static final Pattern SHOW_TABLES_PATTERN = Pattern.compile("(?i)^SHOW\\s+TABLES$");
+    private static final Pattern SHOW_DATABASES_PATTERN = Pattern.compile("(?i)^SHOW\\s+DATABASES$");
     private static final Pattern RELEASE_SAVEPOINT_PATTERN =
             Pattern.compile("(?i)^RELEASE(?:\\s+SAVEPOINT)?\\s+([A-Za-z_][A-Za-z0-9_]*)$");
 
@@ -35,6 +37,9 @@ public class LogicalPlanner {
             return null;
         }
         if (handleManualTransactionCommand(dbManager, sql)) {
+            return null;
+        }
+        if (handleManualShowCommand(dbManager, sql)) {
             return null;
         }
         JSqlParser parser = new CCJSqlParserManager();
@@ -67,7 +72,7 @@ public class LogicalPlanner {
             explainExecutor.execute();
             return null;
         } else if (stmt instanceof ShowStatement showStatement) {
-            ShowDatabaseExecutor showDatabaseExecutor = new ShowDatabaseExecutor(showStatement);
+            ShowDatabaseExecutor showDatabaseExecutor = new ShowDatabaseExecutor(showStatement, dbManager);
             showDatabaseExecutor.execute();
             return null;
         } else {
@@ -126,6 +131,21 @@ public class LogicalPlanner {
         String normalizedSql = normalizeSql(sql);
         if (BEGIN_PATTERN.matcher(normalizedSql).matches() || START_TRANSACTION_PATTERN.matcher(normalizedSql).matches()) {
             dbManager.beginTransaction();
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean handleManualShowCommand(DBManager dbManager, String sql) throws DBException {
+        String normalizedSql = normalizeSql(sql);
+        if (SHOW_DATABASES_PATTERN.matcher(normalizedSql).matches()) {
+            ShowDatabaseExecutor showDatabaseExecutor = new ShowDatabaseExecutor(null, dbManager);
+            showDatabaseExecutor.execute("DATABASES");
+            return true;
+        }
+        if (SHOW_TABLES_PATTERN.matcher(normalizedSql).matches()) {
+            ShowDatabaseExecutor showDatabaseExecutor = new ShowDatabaseExecutor(null, dbManager);
+            showDatabaseExecutor.execute("TABLES");
             return true;
         }
         return false;

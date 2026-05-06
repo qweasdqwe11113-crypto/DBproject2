@@ -79,11 +79,23 @@ public class DBManager {
      * Each table name is displayed in a separate row within the ASCII borders.
      */
     public void showTables() {
-        throw new RuntimeException("Not implement");
-        //todo: complete show table
-        // | -- TABLE -- |
-        // | -- ${table} -- |
-        // | ----------- |
+        ArrayList<String> tableNames = new ArrayList<>(metaManager.getTableNames());
+        tableNames.sort(String::compareTo);
+
+        int contentWidth = "TABLE".length();
+        for (String tableName : tableNames) {
+            contentWidth = Math.max(contentWidth, tableName.length());
+        }
+        contentWidth += 2;
+
+        String border = "|" + StringUtils.repeat("-", contentWidth) + "|";
+        Logger.info(border);
+        Logger.info("|{}|", StringUtils.center("TABLE", contentWidth, ' '));
+        Logger.info(border);
+        for (String tableName : tableNames) {
+            Logger.info("|{}|", StringUtils.center(tableName, contentWidth, ' '));
+        }
+        Logger.info(border);
     }
 
     public void descTable(String table_name) {
