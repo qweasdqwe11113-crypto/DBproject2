@@ -79,8 +79,15 @@ public abstract class Tuple {
             int comparisonResult = ValueComparer.compare(leftValue, rightValue);
             if (operator.equals("=")) {
                 return comparisonResult == 0;
+            } else if (operator.equals(">")) {
+                return comparisonResult > 0;
+            } else if (operator.equals(">=")) {
+                return comparisonResult >= 0;
+            } else if (operator.equals("<")) {
+                return comparisonResult < 0;
+            } else if (operator.equals("<=")) {
+                return comparisonResult <= 0;
             }
-            // todo: finish condition > < >= <=
 
         } catch (DBException e) {
             e.printStackTrace(); // Handle exception properly
