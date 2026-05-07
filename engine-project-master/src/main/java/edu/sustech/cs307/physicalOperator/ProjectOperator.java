@@ -1,11 +1,11 @@
 package edu.sustech.cs307.physicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
+import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.tuple.ProjectTuple;
 import edu.sustech.cs307.tuple.Tuple;
 import edu.sustech.cs307.meta.TabCol;
-import edu.sustech.cs307.value.ValueType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,11 +13,12 @@ import java.util.List;
 public class ProjectOperator implements PhysicalOperator {
     private PhysicalOperator child;
     private List<TabCol> outputSchema; // Use bounded wildcard
+    private ArrayList<ColumnMeta> projectedSchema;
     private Tuple currentTuple;
 
-    public ProjectOperator(PhysicalOperator child, List<TabCol> outputSchema) { // Use bounded wildcard
+    public ProjectOperator(PhysicalOperator child, List<TabCol> outputSchema) throws DBException { // Use bounded wildcard
         this.child = child;
-        this.outputSchema = outputSchema;
+        this.outputSchema = new ArrayList<>(outputSchema);
         if (this.outputSchema.size() == 1 && this.outputSchema.get(0).getTableName().equals("*")) {
             List<TabCol> newOutputSchema = new ArrayList<>();
             for (ColumnMeta tabCol : child.outputSchema()) {
@@ -25,6 +26,7 @@ public class ProjectOperator implements PhysicalOperator {
             }
             this.outputSchema = newOutputSchema;
         }
+        this.projectedSchema = resolveProjectedSchema(child.outputSchema(), this.outputSchema);
     }
 
     @Override
@@ -66,7 +68,33 @@ public class ProjectOperator implements PhysicalOperator {
 
     @Override
     public ArrayList<ColumnMeta> outputSchema() {
-        //todo: return the fields only appear in select items.
-        return child.outputSchema();
+        return projectedSchema;
+    }
+
+    private ArrayList<ColumnMeta> resolveProjectedSchema(ArrayList<ColumnMeta> childSchema, List<TabCol> requestedColumns)
+            throws DBException {
+        ArrayList<ColumnMeta> resolvedSchema = new ArrayList<>();
+        for (TabCol requestedColumn : requestedColumns) {
+            ColumnMeta matchedColumn = null;
+            for (ColumnMeta childColumn : childSchema) {
+                boolean columnNameMatches = childColumn.name.equals(requestedColumn.getColumnName());
+                boolean tableNameMatches = requestedColumn.getTableName().isBlank()
+                        || childColumn.tableName.equals(requestedColumn.getTableName());
+                if (!columnNameMatches || !tableNameMatches) {
+                    continue;
+                }
+                if (matchedColumn != null) {
+                    throw new DBException(ExceptionTypes.InvalidSQL(
+                            requestedColumn.getColumnName(),
+                            "Ambiguous column in projection list"));
+                }
+                matchedColumn = childColumn;
+            }
+            if (matchedColumn == null) {
+                throw new DBException(ExceptionTypes.ColumnDoesNotExist(requestedColumn.getColumnName()));
+            }
+            resolvedSchema.add(matchedColumn);
+        }
+        return resolvedSchema;
     }
 }

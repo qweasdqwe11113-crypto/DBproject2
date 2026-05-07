@@ -29,9 +29,11 @@ public class LogicalProjectOperator extends LogicalOperator {
     public List<TabCol> getOutputSchema() throws DBException {
         List<TabCol> outputSchema = new ArrayList<>();
         for (SelectItem<?> selectItem : selectItems) {
-            //todo : add selectItem.getExpression() instance of Column
             if (selectItem.getExpression() instanceof AllColumns column) {
                 outputSchema.add(new TabCol("*", "*"));
+            } else if (selectItem.getExpression() instanceof Column column) {
+                String tableName = column.getTableName() == null ? "" : column.getTableName();
+                outputSchema.add(new TabCol(tableName, column.getColumnName()));
             } else {
                 throw new DBException(ExceptionTypes.NotSupportedOperation(selectItem.getExpression()));
             }
