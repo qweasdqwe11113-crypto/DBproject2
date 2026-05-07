@@ -45,8 +45,8 @@ public class SeqScanOperator implements PhysicalOperator {
             return false;
         try {
             // Check if current page and slot are valid, and if there are more records
-            if (currentPageNum < totalPages) {
-                while (currentPageNum < totalPages) {
+            if (currentPageNum <= totalPages) {
+                while (currentPageNum <= totalPages) {
                     RecordPageHandle pageHandle = fileHandle.FetchPageHandle(currentPageNum);
                     while (currentSlotNum < recordsPerPage) {
                         if (BitMap.isSet(pageHandle.bitmap, currentSlotNum)) {
@@ -70,7 +70,7 @@ public class SeqScanOperator implements PhysicalOperator {
             fileHandle = dbManager.getRecordManager().OpenFile(tableName);
             totalPages = fileHandle.getFileHeader().getNumberOfPages();
             recordsPerPage = fileHandle.getFileHeader().getNumberOfRecordsPrePage();
-            currentPageNum = 0; // Start from first data page
+            currentPageNum = 1; // Start from first page
             currentSlotNum = 0; // Start from first slot
             isOpen = true;
         } catch (DBException e) {
