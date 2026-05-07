@@ -23,11 +23,13 @@ public abstract class Tuple {
     }
 
     private boolean evaluateCondition(Tuple tuple, Expression whereExpr) {
-        //todo: add Or condition
         if (whereExpr instanceof AndExpression andExpr) {
             // Recursively evaluate left and right expressions
             return evaluateCondition(tuple, andExpr.getLeftExpression())
                     && evaluateCondition(tuple, andExpr.getRightExpression());
+        } else if (whereExpr instanceof OrExpression orExpr) {
+            return evaluateCondition(tuple, orExpr.getLeftExpression())
+                    || evaluateCondition(tuple, orExpr.getRightExpression());
         } else if (whereExpr instanceof BinaryExpression binaryExpression) {
             return evaluateBinaryExpression(tuple, binaryExpression);
         } else {
