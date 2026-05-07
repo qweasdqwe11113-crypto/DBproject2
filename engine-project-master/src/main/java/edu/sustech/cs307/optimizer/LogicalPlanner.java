@@ -31,6 +31,8 @@ public class LogicalPlanner {
     private static final Pattern SHOW_DATABASES_PATTERN = Pattern.compile("(?i)^SHOW\\s+DATABASES$");
     private static final Pattern DESC_TABLE_PATTERN =
             Pattern.compile("(?i)^(?:DESC|DESCRIBE)\\s+([A-Za-z_][A-Za-z0-9_]*)$");
+    private static final Pattern DROP_TABLE_PATTERN =
+            Pattern.compile("(?i)^DROP\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)$");
     private static final Pattern RELEASE_SAVEPOINT_PATTERN =
             Pattern.compile("(?i)^RELEASE(?:\\s+SAVEPOINT)?\\s+([A-Za-z_][A-Za-z0-9_]*)$");
 
@@ -45,6 +47,9 @@ public class LogicalPlanner {
             return null;
         }
         if (handleManualDescCommand(dbManager, sql)) {
+            return null;
+        }
+        if (handleManualDropTableCommand(dbManager, sql)) {
             return null;
         }
         JSqlParser parser = new CCJSqlParserManager();
@@ -163,6 +168,16 @@ public class LogicalPlanner {
             return false;
         }
         dbManager.descTable(matcher.group(1));
+        return true;
+    }
+
+    private static boolean handleManualDropTableCommand(DBManager dbManager, String sql) throws DBException {
+        String normalizedSql = normalizeSql(sql);
+        Matcher matcher = DROP_TABLE_PATTERN.matcher(normalizedSql);
+        if (!matcher.matches()) {
+            return false;
+        }
+        dbManager.dropTable(matcher.group(1));
         return true;
     }
 

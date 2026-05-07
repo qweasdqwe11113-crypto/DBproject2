@@ -165,7 +165,21 @@ public class DBManager {
      *                     errors during deletion
      */
     public void dropTable(String table_name) throws DBException {
-        // todo: finish drop table method
+        if (!isTableExists(table_name)) {
+            Logger.warn("Table does not exist: {}", table_name);
+            return;
+        }
+
+        String tableFolder = String.format("%s/%s", diskManager.getCurrentDir(), table_name);
+        File tableDir = new File(tableFolder);
+        if (tableDir.exists()) {
+            deleteDirectory(tableDir);
+        } else {
+            Logger.warn("Table directory does not exist: {}", tableDir.getAbsolutePath());
+        }
+
+        metaManager.dropTable(table_name);
+        Logger.info("Successfully dropped table: {}", table_name);
     }
 
     /**
