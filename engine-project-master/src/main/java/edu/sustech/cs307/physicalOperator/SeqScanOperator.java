@@ -34,7 +34,7 @@ public class SeqScanOperator implements PhysicalOperator {
         try {
             this.tableMeta = dbManager.getMetaManager().getTable(tableName);
         } catch (DBException e) {
-            // Handle exception properly, maybe log or rethrow
+            // 正确处理异常，可记录日志或重新抛出
             e.printStackTrace();
         }
     }
@@ -44,37 +44,41 @@ public class SeqScanOperator implements PhysicalOperator {
         if (!isOpen)
             return false;
         try {
-            // Check if current page and slot are valid, and if there are more records
+            // 检查当前页和槽位是否有效，以及是否还有后续记录
             if (currentPageNum <= totalPages) {
                 while (currentPageNum <= totalPages) {
                     RecordPageHandle pageHandle = fileHandle.FetchPageHandle(currentPageNum);
                     while (currentSlotNum < recordsPerPage) {
                         if (BitMap.isSet(pageHandle.bitmap, currentSlotNum)) {
-                            return true; // Found next record
+                            return true; // 找到下一条记录
                         }
                         currentSlotNum++;
                     }
                     currentPageNum++;
-                    currentSlotNum = 0; // Reset slot num for new page
+                    currentSlotNum = 0; // 新页从第一个槽位开始
                 }
             }
         } catch (DBException e) {
-            e.printStackTrace(); // Handle exception properly
+            e.printStackTrace(); // 正确处理异常
         }
-        return false; // No more records
+        return false; // 没有更多记录
     }
 
     @Override
     public void Begin() throws DBException {
         try {
+            // 打开记录文件并初始化相关信息
+            //把这张表对应的 data 文件打开，拿到 RecordFileHandle。后续读页、读记录都通过它做
             fileHandle = dbManager.getRecordManager().OpenFile(tableName);
+            // 获取总页数和每页记录数以便迭代
             totalPages = fileHandle.getFileHeader().getNumberOfPages();
+            // 获取每页记录数以便正确迭代槽位
             recordsPerPage = fileHandle.getFileHeader().getNumberOfRecordsPrePage();
-            currentPageNum = 1; // Start from first page
-            currentSlotNum = 0; // Start from first slot
+            currentPageNum = 1; // 从第一页开始
+            currentSlotNum = 0; // 从第一个槽位开始
             isOpen = true;
         } catch (DBException e) {
-            e.printStackTrace(); // Handle exception properly
+            e.printStackTrace(); // 正确处理异常
             isOpen = false;
         }
     }
@@ -84,7 +88,7 @@ public class SeqScanOperator implements PhysicalOperator {
         if (!isOpen)
             return;
         try {
-            if (hasNext()) { // Advance to the next record
+            if (hasNext()) { // 前进到下一条记录
                 RID rid = new RID(currentPageNum, currentSlotNum);
                 currentRecord = fileHandle.GetRecord(rid);
                 currentSlotNum++;
@@ -92,13 +96,13 @@ public class SeqScanOperator implements PhysicalOperator {
                     currentPageNum++;
                     currentSlotNum = 0;
                 }
-                // readonly
+                // 只读
                 fileHandle.UnpinPageHandle(currentPageNum, false);
             } else {
                 currentRecord = null;
             }
         } catch (DBException e) {
-            e.printStackTrace(); // Handle exception properly
+            e.printStackTrace(); // 正确处理异常
             currentRecord = null;
         }
     }
@@ -118,7 +122,7 @@ public class SeqScanOperator implements PhysicalOperator {
         try {
             dbManager.getRecordManager().CloseFile(fileHandle);
         } catch (DBException e) {
-            e.printStackTrace(); // Handle exception properly
+            e.printStackTrace(); // 正确处理异常
         }
         fileHandle = null;
         currentRecord = null;

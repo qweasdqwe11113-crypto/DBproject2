@@ -1,0 +1,60 @@
+SeqScan 简要答辩
+SeqScanOperator.java 做的是全表顺序扫描：
+
+按页号从 1 到 totalPages 走
+每页里按槽号从 0 到 recordsPerPage-1 走
+用位图判断槽位是否有效（BitMap.isSet）
+有效就按 RID(page, slot) 读出记录并返回 tuple
+
+实现思路：
+
+用户输入 SQL 后，先在 LogicalPlanner 里处理 `FROM table`，把它转成 `LogicalTableScanOperator`，表示逻辑上要从这张表读数据。
+
+接着 PhysicalPlanner 会把这个逻辑扫描节点转成物理算子。当前项目里如果没有可用索引，就直接生成 `SeqScanOperator`，所以表扫描默认走顺序扫描。在 PhysicalPlanner.java 里，handleTableScan(...) 对普通表扫描直接 return new SeqScanOperator(tableName, dbManager);
+
+真正执行时，DBEntry 会调用：
+
+`Begin() -> hasNext() -> Next() -> Current()`
+
+SeqScan 的核心做法就是按 `page -> slot` 顺序扫描整张表：
+
+1. `Begin()`
+打开表文件，读取总页数和每页记录数，并把游标初始化到第一页第一个槽位。
+
+2. `hasNext()`
+从当前页和当前槽开始往后找，用 bitmap 判断这个槽位是否真的有记录；如果这一页扫完了，就翻到下一页继续找。
+
+3. `Next()`
+找到下一条记录后，用 `RID(pageNum, slotNum)` 去读出这条 Record，并把游标往后移动。
+
+4. `Current()`
+把当前 Record 包装成 `Tuple` 返回给上层算子。
+ physicalOperator.Begin();
+                    while (physicalOperator.hasNext()) {
+                        physicalOperator.Next();
+                        Tuple tuple = physicalOperator.Current();
+                        Logger.info(getRecordString(tuple));
+                        Logger.info(getSperator(physicalOperator.outputSchema().size()));
+                    }
+                    physicalOperator.Close();
+                    dbManager.getBufferPool().FlushAllPages("");
+physicalOperator.Begin();
+初始化算子（打开文件、准备游标等）
+
+while (physicalOperator.hasNext()) { ... }
+只要还有下一条结果就继续
+
+physicalOperator.Next();
+推进到下一条
+
+Tuple tuple = physicalOperator.Current();
+取当前这条结果行
+
+Logger.info(...)
+打印结果
+
+physicalOperator.Close();
+释放资源（关文件、清状态）
+
+FlushAllPages("")
+把缓冲池脏页刷盘，保证持久化
