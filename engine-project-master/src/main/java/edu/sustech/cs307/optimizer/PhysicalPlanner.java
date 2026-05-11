@@ -26,6 +26,8 @@ public class PhysicalPlanner {
     public static PhysicalOperator generateOperator(DBManager dbManager, LogicalOperator logicalOp) throws DBException {
         if (logicalOp instanceof LogicalTableScanOperator tableScanOperator) {
             return handleTableScan(dbManager, tableScanOperator);
+        } else if (logicalOp instanceof LogicalCountOperator countOperator) {
+            return handleCount(dbManager, countOperator);
         } else if (logicalOp instanceof LogicalFilterOperator filterOperator) {
             return handleFilter(dbManager, filterOperator);
         } else if (logicalOp instanceof LogicalJoinOperator joinOperator) {
@@ -68,6 +70,12 @@ public class PhysicalPlanner {
             throws DBException {
         PhysicalOperator inputOp = generateOperator(dbManager, logicalFilterOp.getChild());
         return new FilterOperator(inputOp, logicalFilterOp.getWhereExpr());
+    }
+
+    private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp)
+            throws DBException {
+        PhysicalOperator inputOp = generateOperator(dbManager, logicalCountOp.getChild());
+        return new CountOperator(inputOp, logicalCountOp.getCountExpr());
     }
 
     private static PhysicalOperator handleJoin(DBManager dbManager, LogicalJoinOperator logicalJoinOp)

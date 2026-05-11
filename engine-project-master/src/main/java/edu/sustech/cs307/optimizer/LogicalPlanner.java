@@ -12,6 +12,7 @@ import net.sf.jsqlparser.statement.ExplainStatement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.ShowStatement;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.statement.select.*;
 import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.statement.insert.Insert;
@@ -117,8 +118,34 @@ public class LogicalPlanner {
         if (plainSelect.getWhere() != null) {
             root = new LogicalFilterOperator(root, plainSelect.getWhere());
         }
-        root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
+        if (isCountQuery(plainSelect.getSelectItems())) {
+            root = new LogicalCountOperator(root, getCountExpression(plainSelect.getSelectItems()));
+        } else {
+            root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
+        }
         return root;
+    }
+
+    private static boolean isCountQuery(java.util.List<SelectItem<?>> selectItems) {
+        if (selectItems == null || selectItems.size() != 1) {
+            return false;
+        }
+        var expr = selectItems.get(0).getExpression();
+        if (!(expr instanceof Function function)) {
+            return false;
+        }
+        return "COUNT".equalsIgnoreCase(function.getName());
+    }
+
+    private static net.sf.jsqlparser.expression.Expression getCountExpression(java.util.List<SelectItem<?>> selectItems) {
+        Function function = (Function) selectItems.get(0).getExpression();
+        if (function.isAllColumns()) {
+            return null;
+        }
+        if (function.getParameters() == null || function.getParameters().getExpressions().isEmpty()) {
+            return null;
+        }
+        return function.getParameters().getExpressions().get(0);
     }
 
     private static LogicalOperator handleInsert(DBManager dbManager, Insert insertStmt) {
