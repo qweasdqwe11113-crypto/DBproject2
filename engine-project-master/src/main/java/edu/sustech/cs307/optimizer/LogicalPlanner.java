@@ -118,15 +118,18 @@ public class LogicalPlanner {
         if (plainSelect.getWhere() != null) {
             root = new LogicalFilterOperator(root, plainSelect.getWhere());
         }
-        if (isCountQuery(plainSelect.getSelectItems())) {
-            root = new LogicalCountOperator(root, getCountExpression(plainSelect.getSelectItems()));
+        if (isAggregateQuery(plainSelect.getSelectItems())) {
+            root = new LogicalAggregateOperator(
+                    root,
+                    getAggregateFunctionName(plainSelect.getSelectItems()),
+                    getAggregateExpression(plainSelect.getSelectItems()));
         } else {
             root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
         }
         return root;
     }
 
-    private static boolean isCountQuery(java.util.List<SelectItem<?>> selectItems) {
+    private static boolean isAggregateQuery(java.util.List<SelectItem<?>> selectItems) {
         if (selectItems == null || selectItems.size() != 1) {
             return false;
         }
@@ -134,10 +137,18 @@ public class LogicalPlanner {
         if (!(expr instanceof Function function)) {
             return false;
         }
-        return "COUNT".equalsIgnoreCase(function.getName());
+        String functionName = function.getName();
+        return "COUNT".equalsIgnoreCase(functionName)
+                || "MAX".equalsIgnoreCase(functionName)
+                || "MIN".equalsIgnoreCase(functionName);
     }
 
-    private static net.sf.jsqlparser.expression.Expression getCountExpression(java.util.List<SelectItem<?>> selectItems) {
+    private static String getAggregateFunctionName(java.util.List<SelectItem<?>> selectItems) {
+        Function function = (Function) selectItems.get(0).getExpression();
+        return function.getName();
+    }
+
+    private static net.sf.jsqlparser.expression.Expression getAggregateExpression(java.util.List<SelectItem<?>> selectItems) {
         Function function = (Function) selectItems.get(0).getExpression();
         if (function.isAllColumns()) {
             return null;
