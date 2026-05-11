@@ -10,6 +10,8 @@ import net.sf.jsqlparser.expression.*;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
 import net.sf.jsqlparser.expression.operators.relational.Between;
+import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
+import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.expression.operators.relational.NotEqualsTo;
 import net.sf.jsqlparser.schema.Column;
 
@@ -39,6 +41,8 @@ public abstract class Tuple {
                     || evaluateCondition(tuple, orExpr.getRightExpression());
         } else if (whereExpr instanceof Between betweenExpr) {
             return evaluateBetweenExpression(tuple, betweenExpr);
+        } else if (whereExpr instanceof InExpression inExpr) {
+            return evaluateInExpression(tuple, inExpr);
         } else if (whereExpr instanceof BinaryExpression binaryExpression) {
             return evaluateBinaryExpression(tuple, binaryExpression);
         } else {
@@ -86,6 +90,28 @@ public abstract class Tuple {
         boolean inRange = ValueComparer.compare(leftValue, startValue) >= 0
                 && ValueComparer.compare(leftValue, endValue) <= 0;
         return betweenExpr.isNot() ? !inRange : inRange;
+    }
+
+    private boolean evaluateInExpression(Tuple tuple, InExpression inExpr) throws DBException {
+        Value leftValue = resolveExpressionValue(tuple, inExpr.getLeftExpression());
+        if (leftValue == null) {
+            return false;
+        }
+
+        Expression rightExpression = inExpr.getRightExpression();
+        if (!(rightExpression instanceof ExpressionList<?> expressionList)) {
+            throw new DBException(ExceptionTypes.UnsupportedExpression(inExpr));
+        }
+
+        boolean matched = false;
+        for (Expression expr : expressionList.getExpressions()) {
+            Value rightValue = resolveExpressionValue(tuple, expr);
+            if (rightValue != null && ValueComparer.compare(leftValue, rightValue) == 0) {
+                matched = true;
+                break;
+            }
+        }
+        return inExpr.isNot() ? !matched : matched;
     }
 
     private Value resolveExpressionValue(Tuple tuple, Expression expr) throws DBException {
