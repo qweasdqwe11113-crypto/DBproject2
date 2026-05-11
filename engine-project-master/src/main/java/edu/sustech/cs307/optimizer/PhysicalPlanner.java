@@ -26,6 +26,10 @@ public class PhysicalPlanner {
     public static PhysicalOperator generateOperator(DBManager dbManager, LogicalOperator logicalOp) throws DBException {
         if (logicalOp instanceof LogicalTableScanOperator tableScanOperator) {
             return handleTableScan(dbManager, tableScanOperator);
+        } else if (logicalOp instanceof LogicalOrderByOperator orderByOperator) {
+            return handleOrderBy(dbManager, orderByOperator);
+        } else if (logicalOp instanceof LogicalGroupAggregateOperator groupAggregateOperator) {
+            return handleGroupAggregate(dbManager, groupAggregateOperator);
         } else if (logicalOp instanceof LogicalAggregateOperator aggregateOperator) {
             return handleAggregate(dbManager, aggregateOperator);
         } else if (logicalOp instanceof LogicalCountOperator countOperator) {
@@ -84,6 +88,21 @@ public class PhysicalPlanner {
             throws DBException {
         PhysicalOperator inputOp = generateOperator(dbManager, logicalAggregateOp.getChild());
         return new AggregateOperator(inputOp, logicalAggregateOp.getFunctionName(), logicalAggregateOp.getAggregateExpr());
+    }
+
+    private static PhysicalOperator handleGroupAggregate(DBManager dbManager,
+                                                         LogicalGroupAggregateOperator logicalGroupAggregateOp)
+            throws DBException {
+        PhysicalOperator inputOp = generateOperator(dbManager, logicalGroupAggregateOp.getChild());
+        return new GroupAggregateOperator(inputOp,
+                logicalGroupAggregateOp.getSelectItems(),
+                logicalGroupAggregateOp.getGroupByExpressions());
+    }
+
+    private static PhysicalOperator handleOrderBy(DBManager dbManager, LogicalOrderByOperator logicalOrderByOp)
+            throws DBException {
+        PhysicalOperator inputOp = generateOperator(dbManager, logicalOrderByOp.getChild());
+        return new OrderByOperator(inputOp, logicalOrderByOp.getOrderByElements());
     }
 
     private static PhysicalOperator handleJoin(DBManager dbManager, LogicalJoinOperator logicalJoinOp)

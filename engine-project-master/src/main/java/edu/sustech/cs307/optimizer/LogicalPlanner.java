@@ -1,30 +1,46 @@
 package edu.sustech.cs307.optimizer;
 
 import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
 import net.sf.jsqlparser.parser.JSqlParser;
 import net.sf.jsqlparser.statement.Commit;
 import net.sf.jsqlparser.statement.ExplainStatement;
-import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.ShowStatement;
 import net.sf.jsqlparser.statement.Statement;
-import net.sf.jsqlparser.expression.Function;
-import net.sf.jsqlparser.statement.select.*;
-import net.sf.jsqlparser.statement.update.Update;
-import net.sf.jsqlparser.statement.insert.Insert;
 import net.sf.jsqlparser.statement.create.table.CreateTable;
+import net.sf.jsqlparser.statement.delete.Delete;
+import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.select.Join;
+import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.select.SelectItem;
+import net.sf.jsqlparser.statement.update.Update;
 
+import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.exception.ExceptionTypes;
-import edu.sustech.cs307.logicalOperator.*;
-import edu.sustech.cs307.system.DBManager;
+import edu.sustech.cs307.logicalOperator.LogicalAggregateOperator;
+import edu.sustech.cs307.logicalOperator.LogicalDeleteOperator;
+import edu.sustech.cs307.logicalOperator.LogicalFilterOperator;
+import edu.sustech.cs307.logicalOperator.LogicalGroupAggregateOperator;
+import edu.sustech.cs307.logicalOperator.LogicalInsertOperator;
+import edu.sustech.cs307.logicalOperator.LogicalJoinOperator;
+import edu.sustech.cs307.logicalOperator.LogicalOperator;
+import edu.sustech.cs307.logicalOperator.LogicalOrderByOperator;
+import edu.sustech.cs307.logicalOperator.LogicalProjectOperator;
+import edu.sustech.cs307.logicalOperator.LogicalTableScanOperator;
+import edu.sustech.cs307.logicalOperator.LogicalUpdateOperator;
 import edu.sustech.cs307.logicalOperator.ddl.CreateTableExecutor;
 import edu.sustech.cs307.logicalOperator.ddl.ExplainExecutor;
 import edu.sustech.cs307.logicalOperator.ddl.ShowDatabaseExecutor;
-import edu.sustech.cs307.exception.DBException;
+import edu.sustech.cs307.system.DBManager;
 
 public class LogicalPlanner {
     private static final Pattern BEGIN_PATTERN = Pattern.compile("(?i)^BEGIN(?:\\s+(?:WORK|TRANSACTION))?$");
@@ -35,8 +51,6 @@ public class LogicalPlanner {
             Pattern.compile("(?i)^(?:DESC|DESCRIBE)\\s+([A-Za-z_][A-Za-z0-9_]*)$");
     private static final Pattern DROP_TABLE_PATTERN =
             Pattern.compile("(?i)^DROP\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)$");
-    private static final Pattern RELEASE_SAVEPOINT_PATTERN =
-            Pattern.compile("(?i)^RELEASE(?:\\s+SAVEPOINT)?\\s+([A-Za-z_][A-Za-z0-9_]*)$");
 
     public static LogicalOperator resolveAndPlan(DBManager dbManager, String sql) throws DBException {
         if (sql == null || sql.isBlank()) {
@@ -54,29 +68,27 @@ public class LogicalPlanner {
         if (handleManualDropTableCommand(dbManager, sql)) {
             return null;
         }
+
         JSqlParser parser = new CCJSqlParserManager();
-        Statement stmt = null;
+        Statement stmt;
         try {
             stmt = parser.parse(new StringReader(sql));
         } catch (JSQLParserException e) {
             throw new DBException(ExceptionTypes.InvalidSQL(sql, e.getMessage()));
         }
-        LogicalOperator operator = null;
-        // Query
+
         if (stmt instanceof Select selectStmt) {
-            operator = handleSelect(dbManager, selectStmt);
+            return handleSelect(dbManager, selectStmt);
         } else if (stmt instanceof Insert insertStmt) {
-            operator = handleInsert(dbManager, insertStmt);
+            return handleInsert(dbManager, insertStmt);
         } else if (stmt instanceof Update updateStmt) {
-            operator = handleUpdate(dbManager, updateStmt);
+            return handleUpdate(dbManager, updateStmt);
         } else if (stmt instanceof Delete deleteStmt) {
-            operator = handleDelete(dbManager, deleteStmt);
-        }else if (stmt instanceof Commit) {
+            return handleDelete(dbManager, deleteStmt);
+        } else if (stmt instanceof Commit) {
             dbManager.commitTransaction();
             return null;
-        }
-        // functional
-        else if (stmt instanceof CreateTable createTableStmt) {
+        } else if (stmt instanceof CreateTable createTableStmt) {
             CreateTableExecutor createTable = new CreateTableExecutor(createTableStmt, dbManager, sql);
             createTable.execute();
             return null;
@@ -88,18 +100,17 @@ public class LogicalPlanner {
             ShowDatabaseExecutor showDatabaseExecutor = new ShowDatabaseExecutor(showStatement, dbManager);
             showDatabaseExecutor.execute();
             return null;
-        } else {
-            throw new DBException(ExceptionTypes.UnsupportedCommand((stmt.toString())));
         }
-        return operator;
-    }
 
+        throw new DBException(ExceptionTypes.UnsupportedCommand(stmt.toString()));
+    }
 
     public static LogicalOperator handleSelect(DBManager dbManager, Select selectStmt) throws DBException {
         PlainSelect plainSelect = selectStmt.getPlainSelect();
         if (plainSelect.getFromItem() == null) {
-            throw new DBException(ExceptionTypes.UnsupportedCommand((plainSelect.toString())));
+            throw new DBException(ExceptionTypes.UnsupportedCommand(plainSelect.toString()));
         }
+
         LogicalOperator root = new LogicalTableScanOperator(plainSelect.getFromItem().toString(), dbManager);
 
         int depth = 0;
@@ -114,11 +125,13 @@ public class LogicalPlanner {
             }
         }
 
-        // 在 Join 之后应用 Filter，Filter 的输入是 Join 的结果 (root)
         if (plainSelect.getWhere() != null) {
             root = new LogicalFilterOperator(root, plainSelect.getWhere());
         }
-        if (isAggregateQuery(plainSelect.getSelectItems())) {
+
+        if (hasGroupBy(plainSelect)) {
+            root = new LogicalGroupAggregateOperator(root, plainSelect.getSelectItems(), getGroupByExpressions(plainSelect));
+        } else if (isAggregateQuery(plainSelect.getSelectItems())) {
             root = new LogicalAggregateOperator(
                     root,
                     getAggregateFunctionName(plainSelect.getSelectItems()),
@@ -126,10 +139,15 @@ public class LogicalPlanner {
         } else {
             root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
         }
+
+        if (plainSelect.getOrderByElements() != null && !plainSelect.getOrderByElements().isEmpty()) {
+            root = new LogicalOrderByOperator(root, plainSelect.getOrderByElements());
+        }
+
         return root;
     }
 
-    private static boolean isAggregateQuery(java.util.List<SelectItem<?>> selectItems) {
+    private static boolean isAggregateQuery(List<SelectItem<?>> selectItems) {
         if (selectItems == null || selectItems.size() != 1) {
             return false;
         }
@@ -143,12 +161,18 @@ public class LogicalPlanner {
                 || "MIN".equalsIgnoreCase(functionName);
     }
 
-    private static String getAggregateFunctionName(java.util.List<SelectItem<?>> selectItems) {
+    private static boolean hasGroupBy(PlainSelect plainSelect) {
+        return plainSelect.getGroupBy() != null
+                && plainSelect.getGroupBy().getGroupByExpressions() != null
+                && !plainSelect.getGroupBy().getGroupByExpressions().getExpressions().isEmpty();
+    }
+
+    private static String getAggregateFunctionName(List<SelectItem<?>> selectItems) {
         Function function = (Function) selectItems.get(0).getExpression();
         return function.getName();
     }
 
-    private static net.sf.jsqlparser.expression.Expression getAggregateExpression(java.util.List<SelectItem<?>> selectItems) {
+    private static Expression getAggregateExpression(List<SelectItem<?>> selectItems) {
         Function function = (Function) selectItems.get(0).getExpression();
         if (function.isAllColumns()) {
             return null;
@@ -157,6 +181,17 @@ public class LogicalPlanner {
             return null;
         }
         return function.getParameters().getExpressions().get(0);
+    }
+
+    private static List<Expression> getGroupByExpressions(PlainSelect plainSelect) {
+        ArrayList<Expression> expressions = new ArrayList<>();
+        if (!hasGroupBy(plainSelect)) {
+            return expressions;
+        }
+        for (Object expr : plainSelect.getGroupBy().getGroupByExpressions().getExpressions()) {
+            expressions.add((Expression) expr);
+        }
+        return expressions;
     }
 
     private static LogicalOperator handleInsert(DBManager dbManager, Insert insertStmt) {
@@ -175,6 +210,7 @@ public class LogicalPlanner {
         LogicalOperator root = new LogicalTableScanOperator(tableName, dbManager);
         return new LogicalDeleteOperator(root, tableName, deleteStmt.getWhere());
     }
+
     private static String normalizeSql(String sql) {
         String normalizedSql = sql == null ? "" : sql.trim();
         while (normalizedSql.endsWith(";")) {
@@ -226,6 +262,4 @@ public class LogicalPlanner {
         dbManager.dropTable(matcher.group(1));
         return true;
     }
-
-
 }

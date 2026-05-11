@@ -11,7 +11,6 @@ import edu.sustech.cs307.storage.BufferPool;
 import edu.sustech.cs307.storage.DiskManager;
 import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.system.RecordManager;
-import edu.sustech.cs307.system.TransactionManager;
 import edu.sustech.cs307.tuple.Tuple;
 
 import org.apache.commons.lang3.StringUtils;
@@ -25,12 +24,10 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
-//TIP To <b>Run</b> code, press <shortcut actionId="Run"/> or
-// click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 public class DBEntry {
     public static final String DB_NAME = "CS307-DB";
-    // for now, we use 256 * 512 * 4096 bytes = 512MB as the pool size
     public static final int POOL_SIZE = 256 * 512;
+    private static final int COLUMN_WIDTH = 15;
 
     public static void printHelp() {
         Logger.info("Type 'exit' to exit the program.");
@@ -44,8 +41,8 @@ public class DBEntry {
         Logger.info("Initializing...");
         DBManager dbManager = null;
         try {
-            Map<String, Integer> disk_manager_meta = new HashMap<>(DiskManager.read_disk_manager_meta());
-            DiskManager diskManager = new DiskManager(DB_NAME, disk_manager_meta);
+            Map<String, Integer> diskManagerMeta = new HashMap<>(DiskManager.read_disk_manager_meta());
+            DiskManager diskManager = new DiskManager(DB_NAME, diskManagerMeta);
             BufferPool bufferPool = new BufferPool(POOL_SIZE, diskManager);
             RecordManager recordManager = new RecordManager(diskManager, bufferPool);
             MetaManager metaManager = new MetaManager(DB_NAME + "/meta");
@@ -82,6 +79,7 @@ public class DBEntry {
                     Logger.error(e.getMessage());
                     Logger.error("An error occurred. Exiting....");
                 }
+
                 try {
                     LogicalOperator operator = LogicalPlanner.resolveAndPlan(dbManager, sql);
                     if (operator == null) {
@@ -92,15 +90,17 @@ public class DBEntry {
                         Logger.info(operator);
                         continue;
                     }
-                    Logger.info(getStartEndLine(physicalOperator.outputSchema().size(), true));
-                    Logger.info(getHeaderString(physicalOperator.outputSchema()));
-                    Logger.info(getSperator(physicalOperator.outputSchema().size()));
+
                     physicalOperator.Begin();
+                    ArrayList<ColumnMeta> outputSchema = physicalOperator.outputSchema();
+                    Logger.info(getBorderLine(outputSchema.size()));
+                    Logger.info(getHeaderString(outputSchema));
+                    Logger.info(getBorderLine(outputSchema.size()));
                     while (physicalOperator.hasNext()) {
                         physicalOperator.Next();
                         Tuple tuple = physicalOperator.Current();
                         Logger.info(getRecordString(tuple));
-                        Logger.info(getSperator(physicalOperator.outputSchema().size()));
+                        Logger.info(getBorderLine(physicalOperator.outputSchema().size()));
                     }
                     physicalOperator.Close();
                     dbManager.getBufferPool().FlushAllPages("");
@@ -112,7 +112,6 @@ public class DBEntry {
             }
         } catch (Exception e) {
             e.printStackTrace();
-            // persist the disk manager
             dbManager.getBufferPool().FlushAllPages("");
             Logger.error("Some error occurred. Exiting after persistdata...");
         }
@@ -121,48 +120,31 @@ public class DBEntry {
     private static String getHeaderString(ArrayList<ColumnMeta> columnMetas) {
         StringBuilder header = new StringBuilder("|");
         for (var entry : columnMetas) {
-            String tabcol = String.format("%s.%s", entry.tableName, entry.name);
-            String centeredText = StringUtils.center(tabcol, 15, ' ');
+            String tabCol = (entry.tableName == null || entry.tableName.isBlank())
+                    ? entry.name
+                    : String.format("%s.%s", entry.tableName, entry.name);
+            String centeredText = StringUtils.center(tabCol, COLUMN_WIDTH, ' ');
             header.append(centeredText).append("|");
         }
         return header.toString();
     }
 
     private static String getRecordString(Tuple tuple) throws DBException {
-        StringBuilder tuple_string = new StringBuilder("|");
+        StringBuilder tupleString = new StringBuilder("|");
         for (var entry : tuple.getValues()) {
             String tabCol = String.format("%s", entry);
-            String centeredText = StringUtils.center(tabCol, 15, ' ');
-            tuple_string.append(centeredText).append("|");
+            String centeredText = StringUtils.center(tabCol, COLUMN_WIDTH, ' ');
+            tupleString.append(centeredText).append("|");
         }
-        return tuple_string.toString();
+        return tupleString.toString();
     }
 
-    private static String getSperator(int width) {
-        // ───────────────
+    private static String getBorderLine(int width) {
         StringBuilder line = new StringBuilder("+");
         for (int i = 0; i < width; i++) {
-            line.append("───────────────");
+            line.append("-".repeat(COLUMN_WIDTH));
             line.append("+");
         }
         return line.toString();
-    }
-
-    private static String getStartEndLine(int width, boolean header) {
-        StringBuilder end_line;
-        if (header) {
-            end_line = new StringBuilder("┌");
-        } else {
-            end_line = new StringBuilder("└");
-        }
-        for (int i = 0; i < width; i++) {
-            end_line.append("───────────────");
-            if (header) {
-                end_line.append("┐");
-            } else {
-                end_line.append("┘");
-            }
-        }
-        return end_line.toString();
     }
 }
