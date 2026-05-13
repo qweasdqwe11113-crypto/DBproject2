@@ -76,14 +76,32 @@ isAggregateQuery(...) 判断是不是聚合查询（支持 COUNT/MAX/MIN）。
 getAggregateFunctionName(...) 拿函数名（COUNT）。
 getAggregateExpression(...) 拿参数表达式（如 * 或某列）。
 LogicalAggregateOperator：逻辑层的“聚合节点”，只保存 child + functionName + aggregateExpr。
+逻辑树：SELECT COUNT(*) FROM t WHERE cond
+
+LogicalAggregateOperator(func=COUNT, expr=null)
+  |
+LogicalFilterOperator(cond)
+  |
+LogicalTableScanOperator(t)
+物理树：
+SELECT COUNT(*) FROM t WHERE cond;
+AggregateOperator(COUNT)
+    |
+FilterOperator(cond)
+    |
+SeqScanOperator(t)
+
 PhysicalPlanner：把逻辑聚合节点转换成物理执行节点 AggregateOperator。
 AggregateOperator：真正执行 COUNT 的地方。
 Begin() 里根据函数名分发到 computeCount()
+
+
 computeCount() 循环读 child 的 tuple 并计数
 Current() 返回单行结果 TempTuple([count])
 SeqScanOperator：常见 child，负责把表行一条条吐给 AggregateOperator。
 DBEntry：统一驱动执行 Begin -> while(hasNext){Next;Current} -> Close 并打印结果。
 串起来（COUNT 执行链）
+
 SQL 进入 LogicalPlanner.handleSelect。
 发现是 COUNT(...)，在原来的 scan/filter/join 之上包一层 LogicalAggregateOperator。
 PhysicalPlanner.generateOperator 把它变成 AggregateOperator(child, "COUNT", expr)。
@@ -92,6 +110,6 @@ child.hasNext() -> child.Next() -> child.Current()
 满足计数条件就 count++
 扫描结束后，AggregateOperator 只产出 1 条结果（计数值）。
 DBEntry 打印这一条结果。
-COUNT 的语义处理（你代码里的细节）
+COUNT 的语义处理
 COUNT(*)：aggregateExpr == null 或识别为 */AllValue，每行都计数。
 COUNT(expr)：tuple.evaluateExpression(expr) != null 才计数（符合 SQL 里忽略 NULL 的思路）。
