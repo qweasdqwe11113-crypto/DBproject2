@@ -113,3 +113,89 @@ DBEntry 打印这一条结果。
 COUNT 的语义处理
 COUNT(*)：aggregateExpr == null 或识别为 */AllValue，每行都计数。
 COUNT(expr)：tuple.evaluateExpression(expr) != null 才计数（符合 SQL 里忽略 NULL 的思路）。
+
+
+
+max:
+
+逻辑树：SELECT MAX(score) FROM t WHERE cond
+
+LogicalAggregateOperator(func=MAX, expr=score)
+  |
+LogicalFilterOperator(cond)
+  |
+LogicalTableScanOperator(t)
+物理树：SELECT MAX(score) FROM t WHERE cond;
+
+AggregateOperator(MAX)
+    |
+FilterOperator(cond)
+    |
+SeqScanOperator(t)
+computeMax()
+ if (aggregateValue == null || ValueComparer.compare(currentValue, aggregateValue) > 0) {
+                aggregateValue = currentValue;
+            }
+
+
+
+
+group By:
+逻辑树：SELECT dept, COUNT(*) FROM t WHERE cond GROUP BY dept
+
+LogicalGroupAggregateOperator(groupBy=[dept], selectItems=[dept, COUNT(*)])
+  |
+LogicalFilterOperator(cond)
+  |
+LogicalTableScanOperator(t)
+物理树：SELECT dept, COUNT(*) FROM t WHERE cond GROUP BY dept;
+
+GroupAggregateOperator
+    |
+FilterOperator(cond)
+    |
+SeqScanOperator(t)
+执行过程（从 Begin() 开始）：
+
+根节点是 GroupAggregateOperator.Begin()。
+它先 child.Begin()，一路到 SeqScan.Begin()。
+然后它自己循环拉子算子输出：hasNext -> Next -> Current。
+每条 tuple 先算分组键（buildGroupKey，例如 dept）。
+用 LinkedHashMap<GroupKey, GroupState> 找到该组状态，没有就新建。
+对该组做聚合累积（accumulate）：
+COUNT：组内计数 +1
+MAX/MIN：组内比较更新
+普通分组列（如 dept）保存组键值
+全部扫描完后，把每个组状态转成一条输出 tuple（buildOutputTuple），放到 outputTuples。
+后续外层执行器调用根节点 hasNext/Next/Current，就一组一组吐结果。
+
+
+
+
+in：
+逻辑树
+以 SELECT * FROM t WHERE a IN (1,2,3); 为例：
+
+LogicalProjectOperator(*)
+  |
+LogicalFilterOperator(condition=a IN (1,2,3))
+  |
+LogicalTableScanOperator(t)
+物理树
+
+ProjectOperator
+  |
+FilterOperator
+  |
+SeqScanOperator(t)
+执行过程
+
+LogicalPlanner 把 WHERE a IN (...) 放进 LogicalFilterOperator。
+PhysicalPlanner 把它变成 FilterOperator。
+FilterOperator.findNext() 扫子节点返回的每条 tuple，调用 tuple.eval_expr(whereExpr)。
+Tuple.evaluateCondition() 识别到 InExpression，进入 evaluateInExpression()。
+它取左边值 a，再遍历右边列表，逐个比较。
+命中则返回 true，这条 tuple 通过过滤。
+如果是 NOT IN，最后把结果取反
+Begin() 只是初始化
+真正“要不要继续读下一条”是在外层 DBEntry 或上层算子的 hasNext() 里触发的
