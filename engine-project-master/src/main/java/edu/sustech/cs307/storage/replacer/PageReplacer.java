@@ -8,4 +8,6 @@ public interface PageReplacer {
     void Unpin(int frameId);
 
     int size();
+
+    void Clear();
 }

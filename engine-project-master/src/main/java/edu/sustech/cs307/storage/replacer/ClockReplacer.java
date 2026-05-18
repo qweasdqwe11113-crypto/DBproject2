@@ -107,4 +107,14 @@ public class ClockReplacer implements PageReplacer {
     public int size() {
         return currentSize;
     }
+
+    @Override
+    public void Clear() {
+        for (int i = 0; i < capacity; i++) {
+            frames[i] = null;
+        }
+        frameToIdx.clear();
+        currentSize = 0;
+        hand = 0;
+    }
 }

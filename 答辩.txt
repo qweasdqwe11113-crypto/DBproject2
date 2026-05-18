@@ -199,3 +199,53 @@ Tuple.evaluateCondition() 识别到 InExpression，进入 evaluateInExpression()
 如果是 NOT IN，最后把结果取反
 Begin() 只是初始化
 真正“要不要继续读下一条”是在外层 DBEntry 或上层算子的 hasNext() 里触发的
+
+
+
+
+
+
+
+等值连接：
+逻辑树：SELECT * FROM a JOIN b ON a.id = b.id WHERE cond
+
+LogicalProjectOperator(*)
+  |
+LogicalFilterOperator(cond)           // 如果有 WHERE
+  |
+LogicalJoinOperator(onExprs=[a.id=b.id])
+  |                           |
+LogicalTableScanOperator(a)   LogicalTableScanOperator(b)
+物理树（你项目里的实际生成方式）：
+
+ProjectOperator
+  |
+FilterOperator(cond)                  // 如果有 WHERE
+  |
+FilterOperator(join on exprs)         // PhysicalPlanner 里额外包的一层
+  |
+NestedLoopJoinOperator
+   |                     |
+SeqScanOperator(a)       SeqScanOperator(b)
+核心点：
+leftOperator：左表 a 对应的物理输入（常见是 SeqScanOperator(a)，也可能是更复杂子树）
+rightOperator：右表 b 对应的物理输入（常见是 SeqScanOperator(b)）
+LogicalPlanner.handleSelect()
+先把 JOIN ... ON ... 建成 LogicalJoinOperator。
+ON 条件存在 join.getOnExpressions() 里。
+PhysicalPlanner.handleJoin()
+左右子树先变成物理算子（通常是两个 SeqScan）。
+构造 NestedLoopJoinOperator(left, right, joinExprs)。
+然后又用 joinExprs 包一层 FilterOperator（你代码就是这么写的）。
+NestedLoopJoin 的执行思想
+外层遍历左表每条 tuple。
+内层遍历右表每条 tuple。
+生成笛卡尔对后交给条件判断（等值连接条件）筛掉不匹配的，只保留 a.id == b.id 的组合。
+
+
+
+
+
+
+回滚测试：
+

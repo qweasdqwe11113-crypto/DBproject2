@@ -232,6 +232,20 @@ public class BufferPool {
         }
     }
 
+    public void Clear() {
+        pageMap.clear();
+        freeList.clear();
+        replacer.Clear();
+        for (int i = 0; i < poolSize; i++) {
+            Page page = pages.get(i);
+            Arrays.fill(page.data.array(), (byte) 0);
+            page.position = new PagePosition("null", 0);
+            page.pin_count = 0;
+            page.dirty = false;
+            freeList.add(i);
+        }
+    }
+
     /**
      * 查找一个受害者页面以进行替换。
      * 

@@ -84,6 +84,11 @@ public class MetaManager {
         }
     }
 
+    public void reloadFromJson() throws DBException {
+        tables.clear();
+        loadFromJson();
+    }
+
     private void loadFromJson() throws DBException {
         File file = new File(ROOT_DIR + "/" + META_FILE);
         if (!file.exists())
