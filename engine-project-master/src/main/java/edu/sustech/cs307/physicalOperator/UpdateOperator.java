@@ -9,7 +9,6 @@ import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.tuple.TempTuple;
 import edu.sustech.cs307.tuple.Tuple;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.ArrayList;
@@ -82,14 +81,7 @@ public class UpdateOperator implements PhysicalOperator {
                 }
                 ByteBuf buffer = Unpooled.buffer();
                 for (Value v : newValues) {
-                    String str = "";
-                    if (v.type == ValueType.CHAR) str = (String) v.value;
-                    if (str.length() == 64) {
-                        ByteBuffer temp = ByteBuffer.allocate(64);
-                        temp.put(str.getBytes());
-                        buffer.writeBytes(temp.array());
-                    }
-                    else buffer.writeBytes(v.ToByte());
+                    buffer.writeBytes(v.ToFixedByte());
                 }
 
                 fileHandle.UpdateRecord(tuple.getRID(), buffer);

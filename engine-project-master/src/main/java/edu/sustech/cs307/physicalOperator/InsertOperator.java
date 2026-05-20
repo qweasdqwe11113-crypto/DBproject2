@@ -43,7 +43,7 @@ public class InsertOperator implements PhysicalOperator {
             // Serialize values to ByteBuf
             ByteBuf buffer = Unpooled.buffer();
             for (int i = 0; i < values.size(); i++) {
-                buffer.writeBytes(values.get(i).ToByte());
+                buffer.writeBytes(values.get(i).ToFixedByte());
                 if ((columnSize == 1) || ((i + 1) % columnSize == 0 && i != 0)) {
                     fileHandle.InsertRecord(buffer);
                     buffer.clear();

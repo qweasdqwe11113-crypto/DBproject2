@@ -49,7 +49,9 @@ public class TableTuple extends Tuple {
         if (columnType == ValueType.INTEGER) {
             return new Value(byteBuf.getLong(0));
         } else if (columnType == ValueType.CHAR) {
-            return new Value(byteBuf.getCharSequence(0, 64, java.nio.charset.StandardCharsets.UTF_8).toString());
+            byte[] bytes = new byte[byteBuf.readableBytes()];
+            byteBuf.getBytes(0, bytes);
+            return Value.FromByte(bytes, ValueType.CHAR);
         } else if (columnType == ValueType.FLOAT) {
             return new Value(byteBuf.getDouble(0));
         } else {

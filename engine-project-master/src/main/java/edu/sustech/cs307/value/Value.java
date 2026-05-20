@@ -1,6 +1,8 @@
 package edu.sustech.cs307.value;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 public class Value {
     public Object value;
@@ -49,10 +51,7 @@ public class Value {
             }
             case CHAR -> {
                 String str = (String) value;
-                ByteBuffer buffer3 = ByteBuffer.allocate(64);
-                buffer3.putInt(str.length());
-                buffer3.put(str.getBytes());
-                yield buffer3.array();
+                yield str.getBytes(StandardCharsets.UTF_8);
             }
             default -> throw new RuntimeException("Unsupported value type: " + type);
         };
@@ -77,15 +76,30 @@ public class Value {
                 yield new Value(buffer2.getDouble());
             }
             case CHAR -> {
-                ByteBuffer buffer3 = ByteBuffer.wrap(bytes);
-                var length = buffer3.getInt();
-                // int is 4 byte
-                String s = new String(bytes, 4, length);
+                int length = bytes.length;
+                if (bytes.length >= Integer.BYTES) {
+                    int encodedLength = ByteBuffer.wrap(bytes).getInt();
+                    if (encodedLength >= 0 && encodedLength <= bytes.length - Integer.BYTES) {
+                        yield new Value(new String(bytes, Integer.BYTES, encodedLength, StandardCharsets.UTF_8));
+                    }
+                }
+                while (length > 0 && bytes[length - 1] == 0) {
+                    length--;
+                }
+                String s = new String(bytes, 0, length, StandardCharsets.UTF_8);
                 yield new Value(s);
             }
             default -> throw new RuntimeException("Unsupported value type: " + type);
         };
 
+    }
+
+    public byte[] ToFixedByte() {
+        if (type != ValueType.CHAR) {
+            return ToByte();
+        }
+        byte[] rawBytes = ToByte();
+        return Arrays.copyOf(rawBytes, CHAR_SIZE);
     }
 
     @Override
@@ -95,11 +109,7 @@ public class Value {
                 return this.value.toString();
             }
             case CHAR -> {
-                byte[] bytes = ((String) this.value).getBytes();
-                ByteBuffer buffer3 = ByteBuffer.wrap(bytes);
-                var length = buffer3.getInt();
-                // int is 4 byte
-                return new String(bytes, 4, length);
+                return (String) this.value;
             }
             default -> throw new RuntimeException("Unsupported value type: " + type);
         }
