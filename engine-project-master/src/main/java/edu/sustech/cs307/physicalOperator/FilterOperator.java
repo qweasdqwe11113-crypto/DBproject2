@@ -9,12 +9,28 @@ import java.util.Collection;
 import edu.sustech.cs307.exception.DBException;
 import org.pmw.tinylog.Logger;
 
+/**
+ * 物理过滤算子 (FilterOperator).
+ *
+ * <p>实现 WHERE 子句的逐行过滤. 采用经典 iterator 模型:
+ * <ul>
+ *   <li>{@link #Begin()}   - 打开子算子, 重置内部状态</li>
+ *   <li>{@link #hasNext()} - 懒查找下一条满足 whereExpr 的元组, 命中则缓存</li>
+ *   <li>{@link #Next()}    - 把缓存当作当前元组, 之后再次 hasNext() 才会继续查找</li>
+ *   <li>{@link #Current()} - 返回当前缓存的元组</li>
+ * </ul>
+ *
+ * <p>表达式求值委托给 {@link Tuple#eval_expr(Expression)},
+ * 该方法支持 AND/OR/BETWEEN/IN(字面量)/二元比较等; 子查询型谓词
+ * 已被 {@code LogicalPlanner.rewriteSubqueryPredicates} 提前消除, 这里看不到.
+ */
 public class FilterOperator implements PhysicalOperator {
     private PhysicalOperator child;
     private Expression whereExpr;
     private Tuple currentTuple;
     private boolean isOpen = false;
-    // 标记是否已经准备好下一个元组
+    // readyForNext = true 表示 currentTuple 已经是"还没被 Next() 消费过的下一行".
+    // 这套 hasNext/Next 拆开的设计保证 hasNext 可以被反复调用而不会跳行.
     private boolean readyForNext = false;
 
     public FilterOperator(PhysicalOperator child, Expression whereExpr) {

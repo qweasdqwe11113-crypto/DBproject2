@@ -24,6 +24,25 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 程序入口 (REPL 主循环).
+ *
+ * <p>启动流程:
+ * <ol>
+ *   <li>读取 disk_manager_meta.json -> 构造 DiskManager (恢复每个文件的 page 数)</li>
+ *   <li>用 POOL_SIZE 初始化 BufferPool (默认 LRUReplacer)</li>
+ *   <li>RecordManager 包裹 DiskManager + BufferPool 提供记录级 API</li>
+ *   <li>MetaManager 从 meta/meta_data.json 加载所有表的 schema</li>
+ *   <li>DBManager 把以上四件玩具串成一个门面对象</li>
+ * </ol>
+ *
+ * <p>主循环:
+ * 用 jline 读一行 SQL -> {@link LogicalPlanner#resolveAndPlan} 转为逻辑算子 ->
+ * {@link PhysicalPlanner#generateOperator} 转为物理算子 -> Begin/hasNext/Next/Current/Close
+ * 迭代器协议依次打印每行结果 -> 最后 flush 缓冲池.
+ *
+ * <p>输入 "exit" 退出, "help" 显示帮助; 解析或执行抛 DBException 时打印错误但不退出.
+ */
 public class DBEntry {
     public static final String DB_NAME = "CS307-DB";
     public static final int POOL_SIZE = 256 * 512;

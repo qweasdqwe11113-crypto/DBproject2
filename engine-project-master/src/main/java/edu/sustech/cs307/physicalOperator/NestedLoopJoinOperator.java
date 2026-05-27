@@ -10,6 +10,29 @@ import edu.sustech.cs307.tuple.JoinTuple;
 import edu.sustech.cs307.tuple.Tuple;
 import net.sf.jsqlparser.expression.Expression;
 
+/**
+ * 嵌套循环连接 (Nested-Loop Join).
+ *
+ * <p>实现等值/通用谓词的内连接, 算法为最朴素的双层循环:
+ * <pre>
+ *   for left_tuple in leftOperator:
+ *       for right_tuple in rightOperator:   // 整个 right 在 Begin() 时一次性物化到 rightTuples
+ *           if expr(joined(left, right)) all true:
+ *               emit joined tuple
+ * </pre>
+ *
+ * <p>实现细节:
+ * <ul>
+ *   <li>{@link #Begin()} 把右表全部 drain 到内存的 {@code rightTuples} 列表里,
+ *       避免每条左行都重新打开右子算子.</li>
+ *   <li>{@link #hasNext()} 内部维护游标 {@code rightCursor}, 一行一行地往前推进;
+ *       右表用尽就推进左行并重置游标 (见 {@link #findNextMatch}).</li>
+ *   <li>{@link JoinTuple} 把左右行拼接成一行供 WHERE/ON 表达式求值, schema 由
+ *       {@link #buildOutputSchema} 在构造时按 "左列 + 右列" 顺序拼好.</li>
+ * </ul>
+ *
+ * <p>复杂度 O(|left| × |right|); 后续可拓展为 Hash Join / Sort-Merge Join 以求优化.
+ */
 public class NestedLoopJoinOperator implements PhysicalOperator {
 
     private final PhysicalOperator leftOperator;

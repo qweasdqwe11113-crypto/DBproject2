@@ -14,6 +14,20 @@ import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.OrderByElement;
 
+/**
+ * 排序算子 (ORDER BY).
+ *
+ * <p>实现是经典的 "sort by buffer":
+ * <ol>
+ *   <li>{@link #Begin()} 把子算子的全部行收到内存里 (ArrayList).</li>
+ *   <li>用 jdk 自带的 TimSort + 自定义比较器排序;
+ *       比较器按 ORDER BY 子句里的列依次比较, 遇到第一列分出胜负就停止.</li>
+ *   <li>支持 ASC / DESC (默认 ASC), NULL 视为最小.</li>
+ *   <li>每次 {@link #Next()} 把游标向前推一格, {@link #Current()} 返回该位置元组.</li>
+ * </ol>
+ *
+ * <p>注意: 该算子是阻塞型 (pipeline breaker), 整个子树 drain 完才能产生第一行.
+ */
 public class OrderByOperator implements PhysicalOperator {
     private final PhysicalOperator child;
     private final List<OrderByElement> orderByElements;

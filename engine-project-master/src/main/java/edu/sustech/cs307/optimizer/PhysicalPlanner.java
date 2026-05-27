@@ -21,7 +21,33 @@ import net.sf.jsqlparser.statement.select.Values;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 物理计划生成器 (Physical Planner).
+ *
+ * <p>负责把 {@link LogicalPlanner} 产出的逻辑算子树翻译成可被 iterator 模型执行的
+ * 物理算子树. 当前实现是规则式 (rule-based) 的, 一一对应:
+ *
+ * <pre>
+ *   LogicalTableScanOperator      -> SeqScanOperator (无索引) / IndexScanOperator (有索引, 待实现)
+ *   LogicalFilterOperator         -> FilterOperator
+ *   LogicalProjectOperator        -> ProjectOperator
+ *   LogicalJoinOperator           -> NestedLoopJoinOperator
+ *   LogicalAggregateOperator      -> AggregateOperator   (MAX/MIN/COUNT 单聚合)
+ *   LogicalGroupAggregateOperator -> GroupAggregateOperator (带 GROUP BY)
+ *   LogicalOrderByOperator        -> OrderByOperator
+ *   LogicalInsertOperator         -> InsertOperator
+ *   LogicalUpdateOperator         -> UpdateOperator
+ *   LogicalDeleteOperator         -> DeleteOperator
+ * </pre>
+ *
+ * <p>更高级的查询优化 (基于统计信息选择 Join 顺序、走索引、谓词下推等)
+ * 属于 Task 2 Advanced 的可选拓展, 目前仅做了最基础的语法到算子映射.
+ */
 public class PhysicalPlanner {
+    /**
+     * 把逻辑算子转换为物理算子的总入口. 通过模式匹配按类型分派,
+     * 每个分支递归地对子树调用本方法, 自底向上构建完整的物理算子链.
+     */
     public static PhysicalOperator generateOperator(DBManager dbManager, LogicalOperator logicalOp) throws DBException {
         if (logicalOp instanceof LogicalTableScanOperator tableScanOperator) {
             return handleTableScan(dbManager, tableScanOperator);
