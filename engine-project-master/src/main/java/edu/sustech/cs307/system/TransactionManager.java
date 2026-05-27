@@ -14,6 +14,29 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 
+/**
+ * 事务管理器.
+ *
+ * <p>策略选择: "整库快照 + 回滚". 这种做法以拷贝整库目录为代价,
+ * 换取实现简单 + 对存储层零侵入, 满足教学需求:
+ *
+ * <ul>
+ *   <li>{@link #begin()}                - 把当前 DB 目录复制到 OS 临时目录, 形成 snapshot.</li>
+ *   <li>{@link #savepoint(String)}      - 在事务内部再做一次 snapshot, 入 stack.</li>
+ *   <li>{@link #rollback()}             - 把 snapshot 复制回 DB 目录, 重新加载元数据.</li>
+ *   <li>{@link #rollbackToSavepoint}    - 找到指定 savepoint, 用它的快照恢复, 删除其后所有 savepoint.</li>
+ *   <li>{@link #releaseSavepoint}       - 只清理对应 savepoint 的临时目录, 不影响数据.</li>
+ *   <li>{@link #commit()}               - 把当前 runtime 状态持久化, 删掉所有 snapshot 临时目录.</li>
+ * </ul>
+ *
+ * <p>关键点:
+ * <ul>
+ *   <li>每个 snapshot 同时记录 {@code disk_manager_meta} 中的 filePages 计数,
+ *       回滚时也要恢复, 否则后续 AllocatePage 会偏移.</li>
+ *   <li>回滚后必须 {@link BufferPool#Clear()} + {@link MetaManager#reloadFromJson()},
+ *       否则内存里残留的脏页/旧 schema 会破坏一致性.</li>
+ * </ul>
+ */
 public class TransactionManager {
 
     private final DBManager dbManager;

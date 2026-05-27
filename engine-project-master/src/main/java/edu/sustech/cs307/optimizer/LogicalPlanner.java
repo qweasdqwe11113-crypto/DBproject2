@@ -7,18 +7,30 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.LongValue;
+import net.sf.jsqlparser.expression.NullValue;
+import net.sf.jsqlparser.expression.Parenthesis;
+import net.sf.jsqlparser.expression.StringValue;
+import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
+import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
+import net.sf.jsqlparser.expression.operators.relational.ExistsExpression;
+import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
+import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
 import net.sf.jsqlparser.parser.JSqlParser;
 import net.sf.jsqlparser.statement.Commit;
 import net.sf.jsqlparser.statement.ExplainStatement;
 import net.sf.jsqlparser.statement.ShowStatement;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.alter.Alter;
 import net.sf.jsqlparser.statement.create.table.CreateTable;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
 import net.sf.jsqlparser.statement.select.Join;
+import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
@@ -37,11 +49,40 @@ import edu.sustech.cs307.logicalOperator.LogicalOrderByOperator;
 import edu.sustech.cs307.logicalOperator.LogicalProjectOperator;
 import edu.sustech.cs307.logicalOperator.LogicalTableScanOperator;
 import edu.sustech.cs307.logicalOperator.LogicalUpdateOperator;
+import edu.sustech.cs307.logicalOperator.ddl.AlterTableExecutor;
 import edu.sustech.cs307.logicalOperator.ddl.CreateTableExecutor;
 import edu.sustech.cs307.logicalOperator.ddl.ExplainExecutor;
 import edu.sustech.cs307.logicalOperator.ddl.ShowDatabaseExecutor;
+import edu.sustech.cs307.physicalOperator.PhysicalOperator;
 import edu.sustech.cs307.system.DBManager;
+import edu.sustech.cs307.tuple.Tuple;
+import edu.sustech.cs307.value.Value;
+import edu.sustech.cs307.value.ValueType;
 
+/**
+ * 逻辑计划生成器 (Logical Planner).
+ *
+ * <p>职责:
+ * <ol>
+ *   <li>把用户输入的 SQL 字符串先做手写正则匹配, 处理 jsqlparser 不完整支持的命令
+ *       (BEGIN/COMMIT/ROLLBACK/SAVEPOINT, SHOW TABLES, DESC t, DROP TABLE t).</li>
+ *   <li>其余语句交给 jsqlparser 解析为 {@link Statement}, 再按类型分派:
+ *       <ul>
+ *         <li>{@link Select}   - 构建 TableScan/Filter/Project/Join/Aggregate/OrderBy 逻辑算子树</li>
+ *         <li>{@link Insert}   - 构建 LogicalInsertOperator</li>
+ *         <li>{@link Update}   - 构建 LogicalUpdateOperator + TableScan</li>
+ *         <li>{@link Delete}   - 构建 LogicalDeleteOperator + TableScan</li>
+ *         <li>{@link CreateTable} - 调用 CreateTableExecutor 立即执行</li>
+ *         <li>{@link Alter}    - 调用 AlterTableExecutor 立即执行 (本次新增)</li>
+ *       </ul>
+ *   </li>
+ *   <li>WHERE 中的子查询 (IN/NOT IN/EXISTS) 由 {@link #rewriteSubqueryPredicates}
+ *       提前求值并替换成常量, 让下游 FilterOperator 无需感知子查询.</li>
+ * </ol>
+ *
+ * <p>本类只负责"语法 -> 算子树"的翻译, 不负责具体执行;
+ * 物理执行路径由 {@link PhysicalPlanner} 接管.
+ */
 public class LogicalPlanner {
     private static final Pattern BEGIN_PATTERN = Pattern.compile("(?i)^BEGIN(?:\\s+(?:WORK|TRANSACTION))?$");
     private static final Pattern START_TRANSACTION_PATTERN = Pattern.compile("(?i)^START\\s+TRANSACTION$");
@@ -100,6 +141,15 @@ public class LogicalPlanner {
             CreateTableExecutor createTable = new CreateTableExecutor(createTableStmt, dbManager, sql);
             createTable.execute();
             return null;
+        } else if (stmt instanceof Alter alterStmt) {
+            // -------------------------------------------------------------
+            // ALTER TABLE 入口:
+            // jsqlparser 把 "ALTER TABLE t ..." 解析为 net.sf.jsqlparser.statement.alter.Alter,
+            // 里面包含一个或多个 AlterExpression (每个对应一个子句, 例如 ADD COLUMN c INT).
+            // 真正语义在 AlterTableExecutor 中实现, 这里仅做路由.
+            // -------------------------------------------------------------
+            new AlterTableExecutor(alterStmt, dbManager).execute();
+            return null;
         } else if (stmt instanceof ExplainStatement explainStatement) {
             ExplainExecutor explainExecutor = new ExplainExecutor(explainStatement, dbManager);
             explainExecutor.execute();
@@ -134,7 +184,17 @@ public class LogicalPlanner {
         }
 
         if (plainSelect.getWhere() != null) {
-            root = new LogicalFilterOperator(root, plainSelect.getWhere());
+            // -------------------------------------------------------------
+            // 在交给 FilterOperator 之前, 先把 WHERE 中出现的子查询展开:
+            //   * IN  (SELECT ...) / NOT IN (SELECT ...)
+            //       -> 把子查询第一列的结果物化成 ExpressionList,
+            //          复用现有 Tuple.evaluateInExpression 即可.
+            //   * EXISTS (SELECT ...) / NOT EXISTS (SELECT ...)
+            //       -> 直接执行子查询, 看是否至少返回一行, 替换为常量 1 或 0.
+            // 仅支持非相关 (uncorrelated) 子查询: 子查询的 WHERE 不能引用外层表的列.
+            // -------------------------------------------------------------
+            Expression where = rewriteSubqueryPredicates(dbManager, plainSelect.getWhere());
+            root = new LogicalFilterOperator(root, where);
         }
 
         if (hasGroupBy(plainSelect)) {
@@ -292,5 +352,141 @@ public class LogicalPlanner {
         }
         dbManager.dropTable(matcher.group(1));
         return true;
+    }
+
+    // =====================================================================
+    // ===== 以下是 IN(子查询) / NOT IN(子查询) / EXISTS / NOT EXISTS 支持 =====
+    // =====================================================================
+
+    /**
+     * 递归遍历 WHERE 表达式树, 把所有非相关子查询求值并替换成等价的常量节点.
+     *
+     * <p>处理顺序很重要: 必须先递归到 AND/OR 的两个子节点, 然后再判断当前节点
+     * 是否是子查询型谓词, 这样嵌套子查询 (子查询的 WHERE 中又有子查询) 也能展开.
+     */
+    private static Expression rewriteSubqueryPredicates(DBManager dbManager, Expression expr) throws DBException {
+        if (expr == null) {
+            return null;
+        }
+        if (expr instanceof Parenthesis paren) {
+            // 括号包裹层: 递归处理内部, 不需要保留括号节点本身.
+            paren.setExpression(rewriteSubqueryPredicates(dbManager, paren.getExpression()));
+            return paren;
+        }
+        if (expr instanceof AndExpression andExpr) {
+            andExpr.setLeftExpression(rewriteSubqueryPredicates(dbManager, andExpr.getLeftExpression()));
+            andExpr.setRightExpression(rewriteSubqueryPredicates(dbManager, andExpr.getRightExpression()));
+            return andExpr;
+        }
+        if (expr instanceof OrExpression orExpr) {
+            orExpr.setLeftExpression(rewriteSubqueryPredicates(dbManager, orExpr.getLeftExpression()));
+            orExpr.setRightExpression(rewriteSubqueryPredicates(dbManager, orExpr.getRightExpression()));
+            return orExpr;
+        }
+        if (expr instanceof ExistsExpression existsExpr) {
+            // EXISTS / NOT EXISTS 子查询求值:
+            // 跑一遍子查询计划, 看是否至少有一行结果即可.
+            Select sub = extractSelect(existsExpr.getRightExpression());
+            boolean any = (sub != null) && executeAndHasAtLeastOneRow(dbManager, sub);
+            // NOT EXISTS 等价于 ! any.
+            boolean truth = existsExpr.isNot() != any;
+            // 用一个常量 LongValue(1/0) 替换整个 EXISTS 节点.
+            // Tuple.evaluateBinaryExpression / 顶层布尔判断不会去消费这个常量,
+            // 所以我们把它包成 "1 = 1" / "1 = 0" 这种永真/永假的二元比较, 兼容现有引擎.
+            return constantBoolean(truth);
+        }
+        if (expr instanceof InExpression inExpr) {
+            // 仅当右值是子查询时才需要重写; 普通 ExpressionList 已经被 Tuple 支持.
+            Expression rhs = inExpr.getRightExpression();
+            Select sub = extractSelect(rhs);
+            if (sub != null) {
+                List<Expression> literals = materializeFirstColumn(dbManager, sub);
+                ExpressionList<Expression> list = new ExpressionList<>(literals);
+                inExpr.setRightExpression(list);
+            }
+            return inExpr;
+        }
+        // 其他表达式 (二元比较, BETWEEN, 列引用, 常量 ...) 不含子查询, 原样返回.
+        return expr;
+    }
+
+    /**
+     * 把可能被 ParenthesedSelect 包裹的子查询节点剥出来.
+     * jsqlparser 通常把 "(SELECT ...)" 解析成 ParenthesedSelect, 再 wrap 上一层 Select.
+     */
+    private static Select extractSelect(Expression expr) {
+        if (expr instanceof ParenthesedSelect ps) {
+            return ps;
+        }
+        if (expr instanceof Select select) {
+            return select;
+        }
+        return null;
+    }
+
+    /**
+     * 执行一个 Select 子查询, 收集第一列的全部值, 转回 jsqlparser 的字面量节点,
+     * 以便塞进 ExpressionList, 复用现有 IN 字面量比较路径.
+     */
+    private static List<Expression> materializeFirstColumn(DBManager dbManager, Select sub) throws DBException {
+        LogicalOperator lop = handleSelect(dbManager, sub);
+        PhysicalOperator pop = PhysicalPlanner.generateOperator(dbManager, lop);
+        List<Expression> out = new ArrayList<>();
+        pop.Begin();
+        try {
+            while (pop.hasNext()) {
+                pop.Next();
+                Tuple t = pop.Current();
+                if (t == null) {
+                    continue;
+                }
+                Value[] vs = t.getValues();
+                if (vs == null || vs.length == 0 || vs[0] == null) {
+                    continue;
+                }
+                out.add(valueToLiteral(vs[0]));
+            }
+        } finally {
+            pop.Close();
+        }
+        return out;
+    }
+
+    /** 执行子查询, 返回是否至少有一行结果 (用于 EXISTS). */
+    private static boolean executeAndHasAtLeastOneRow(DBManager dbManager, Select sub) throws DBException {
+        LogicalOperator lop = handleSelect(dbManager, sub);
+        PhysicalOperator pop = PhysicalPlanner.generateOperator(dbManager, lop);
+        pop.Begin();
+        try {
+            return pop.hasNext();
+        } finally {
+            pop.Close();
+        }
+    }
+
+    /** 把内部 Value 转换成 jsqlparser 的字面量 Expression, 以便嵌回 AST. */
+    private static Expression valueToLiteral(Value v) {
+        if (v == null || v.type == ValueType.UNKNOWN) {
+            return new NullValue();
+        }
+        return switch (v.type) {
+            case INTEGER -> new LongValue(((Number) v.value).longValue());
+            case FLOAT -> new DoubleValue(String.valueOf(((Number) v.value).doubleValue()));
+            case CHAR -> new StringValue(String.valueOf(v.value));
+            default -> new NullValue();
+        };
+    }
+
+    /**
+     * 用 "1 = 1" 或 "1 = 0" 这种永真/永假表达式替换 EXISTS 节点,
+     * 这样后续的 Tuple.evaluateBinaryExpression 能继续按二元比较来求值,
+     * 不需要在 FilterOperator/Tuple 中额外加分支.
+     */
+    private static Expression constantBoolean(boolean truth) {
+        net.sf.jsqlparser.expression.operators.relational.EqualsTo eq =
+                new net.sf.jsqlparser.expression.operators.relational.EqualsTo();
+        eq.setLeftExpression(new LongValue(1));
+        eq.setRightExpression(new LongValue(truth ? 1 : 0));
+        return eq;
     }
 }

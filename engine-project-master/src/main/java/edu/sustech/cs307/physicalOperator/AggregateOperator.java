@@ -12,6 +12,20 @@ import edu.sustech.cs307.value.ValueComparer;
 import edu.sustech.cs307.value.ValueType;
 import net.sf.jsqlparser.expression.Expression;
 
+/**
+ * 单组聚合算子 (无 GROUP BY 的 COUNT/MAX/MIN).
+ *
+ * <p>读取子算子所有行, 在 {@link #Begin()} 阶段一次性算出聚合结果;
+ * 之后 hasNext/Next/Current 把这一行的结果发射给上层算子, 然后立刻结束.
+ *
+ * <ul>
+ *   <li>COUNT: 计数; 表达式为 * 时统计所有行, 否则统计该列非空的行</li>
+ *   <li>MAX  : 求最大值, 通过 {@link ValueComparer} 比较</li>
+ *   <li>MIN  : 求最小值, 同上</li>
+ * </ul>
+ *
+ * <p>带 GROUP BY 的版本在 {@link GroupAggregateOperator} 实现, 不复用此类.
+ */
 public class AggregateOperator implements PhysicalOperator {
     private final PhysicalOperator child;
     private final String functionName;

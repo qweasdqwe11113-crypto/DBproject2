@@ -3,6 +3,19 @@ package edu.sustech.cs307.storage.replacer;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 时钟页面替换器 (Clock / Second-Chance).
+ *
+ * <p>近似 LRU, 用一个环形数组 + 指针 (hand) 模拟时钟:
+ * <ul>
+ *   <li>每个 frame 有 ref 位, 命中即置 1</li>
+ *   <li>{@link #Victim()} 沿时针走: 跳过 pinned 的; 遇到 ref=1 则清 0 并继续走;
+ *       遇到 ref=0 即为受害者</li>
+ *   <li>所有 frame 都 pinned 时返回 -1, 表示无法腾出空间</li>
+ * </ul>
+ *
+ * <p>相比纯 LRU, 实现里没有真正的链表操作, 全部是数组索引推进, 适合大缓冲池.
+ */
 public class ClockReplacer implements PageReplacer {
     private static class FrameState {
         int frameId;

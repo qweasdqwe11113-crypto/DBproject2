@@ -18,6 +18,24 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.function.IntFunction;
 
+/**
+ * 数据库门面类 (Facade).
+ *
+ * <p>它把项目里几个底层模块 (DiskManager 磁盘 I/O、BufferPool 缓冲池、
+ * RecordManager 记录管理、MetaManager 表元数据、TransactionManager 事务) 聚合在一起,
+ * 给 DBEntry / LogicalPlanner / DDL 执行器提供统一的高层 API:
+ *
+ * <ul>
+ *   <li>{@link #showTables()} / {@link #descTable(String)} - 显示元数据</li>
+ *   <li>{@link #createTable(String, ArrayList)}            - 建表 (创建数据文件 + 写元数据)</li>
+ *   <li>{@link #dropTable(String)}                         - 删表 (清目录 + 删元数据)</li>
+ *   <li>{@link #beginTransaction()} / {@link #commitTransaction()} - 事务包装</li>
+ *   <li>{@link #closeDBManager()} / {@link #persistRuntimeState()} - 落盘 hooks</li>
+ * </ul>
+ *
+ * <p>关闭/持久化路径会把缓冲池里的脏页 flush 回磁盘, 然后再把 DiskManager 与
+ * MetaManager 的元数据写回 JSON 文件, 这是教学型 DBMS 保证数据持久性的核心.
+ */
 public class DBManager {
     private final MetaManager metaManager;
     /* --- --- --- */

@@ -15,17 +15,42 @@ import net.sf.jsqlparser.expression.operators.relational.InExpression;
 import net.sf.jsqlparser.expression.operators.relational.NotEqualsTo;
 import net.sf.jsqlparser.schema.Column;
 
+/**
+ * 元组的抽象基类. 子类 (TableTuple / TempTuple / JoinTuple / ProjectTuple / NamedTempTuple)
+ * 各自实现 {@link #getValue(TabCol)} / {@link #getValues()} / {@link #getTupleSchema()},
+ * 这里则统一提供了 WHERE 表达式求值 ({@link #eval_expr}) 与单个表达式求值
+ * ({@link #evaluateExpression}) 的实现, 供过滤/连接/聚合/排序算子共用.
+ *
+ * <p>支持的表达式类型: 括号、AND/OR、BETWEEN、IN (字面量列表)、二元比较 (=, !=, <>, >, >=, <, <=).
+ * 子查询型 IN/EXISTS 已在 LogicalPlanner.rewriteSubqueryPredicates 阶段被消除,
+ * 走到这里的都是普通表达式.
+ */
 public abstract class Tuple {
+    /** 根据 (表名, 列名) 取一个字段的值. 子类按自己的存储形式实现. */
     public abstract Value getValue(TabCol tabCol) throws DBException;
 
+    /** 当前元组的 schema (字段顺序与 getValues() 一致). */
     public abstract TabCol[] getTupleSchema();
 
+    /** 按 schema 顺序返回所有字段的值, 用于打印/序列化/聚合. */
     public abstract Value[] getValues() throws DBException;
 
+    /**
+     * 把表达式当布尔条件求值: 例如 WHERE a > 3 AND b = 'x' 用在 FilterOperator 里.
+     * 内部分派给 {@link #evaluateCondition}, 支持递归.
+     */
     public boolean eval_expr(Expression expr) throws DBException {
         return evaluateCondition(this, expr);
     }
 
+    /**
+     * 表达式 -> 布尔的递归求值. 按 AST 结构逐层下钻:
+     *   Parenthesis  -> 透传
+     *   AND/OR       -> 短路求值左右子表达式
+     *   BETWEEN      -> low <= expr <= high (考虑 NOT BETWEEN)
+     *   InExpression -> 左值与右侧字面量列表逐个比较 (考虑 NOT IN)
+     *   BinaryExpression -> 走 evaluateBinaryExpression
+     */
     private boolean evaluateCondition(Tuple tuple, Expression whereExpr) throws DBException {
         if (whereExpr == null) {
             return true;
