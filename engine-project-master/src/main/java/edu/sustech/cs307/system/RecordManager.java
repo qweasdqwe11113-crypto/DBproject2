@@ -36,7 +36,19 @@ public class RecordManager {
         if (record_size <= 0 || record_size > MAX_RECORD_SIZE) {
             throw new DBException(ExceptionTypes.InvalidTableWidth(record_size));
         }
+        // ----------------------------------------------------------
+        // 物理建文件: 此时 DiskManager 把 filePages 设为 0, 表示尚未分配任何页.
+        // 我们这里需要把 page 0 作为 "文件头页" 保留下来, 因此显式调用 AllocatePage():
+        //   * AllocatePage 把 filePages 从 0 提升到 1, 返回值就是新分配页的 pageId = 0;
+        //   * 之后 RecordFileHandle 里 bufferPool.NewPage(...) 第一次分配的数据页
+        //     就会拿到 pageId = 1, 而不是踩在 page 0 的文件头上.
+        //
+        // 注意: RecordFileHandleTest 不走这个路径, 它直接用 DiskManager.CreateFile + 自己
+        // 把文件头写到 offset 0, 但并不调用 AllocatePage —— 所以 test 里第一条数据页
+        // 落在 pageId = 0, 这正是 test 想验证的行为 (autoAllocateNewPageWhenFull).
+        // ----------------------------------------------------------
         diskManager.CreateFile(filename);
+        diskManager.AllocatePage(filename);
         Page page = new Page();
         diskManager.ReadPage(page, filename, 0, Page.DEFAULT_PAGE_SIZE);
         RecordFileHeader recordFileHeader = new RecordFileHeader(page.data);

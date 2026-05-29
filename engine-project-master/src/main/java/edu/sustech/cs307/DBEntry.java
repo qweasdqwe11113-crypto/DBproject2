@@ -122,16 +122,25 @@ public class DBEntry {
                         Logger.info(getBorderLine(physicalOperator.outputSchema().size()));
                     }
                     physicalOperator.Close();
-                    dbManager.getBufferPool().FlushAllPages("");
+                    // 每条命令执行完整地持久化: flush 脏页 + dump disk meta + save table meta,
+                    // 保证 insert/update/delete 实时落盘且 page count 元数据不丢失。
+                    dbManager.persistRuntimeState();
                 } catch (DBException e) {
                     Logger.error(e.getMessage());
                     Logger.error("An error occurred. Please try again.");
                     Logger.error(Arrays.toString(e.getStackTrace()));
                 }
             }
+            // 正常退出 (输入 exit): 完整收尾, 落盘所有元数据。
+            dbManager.closeDBManager();
+            Logger.info("Bye!");
         } catch (Exception e) {
             e.printStackTrace();
-            dbManager.getBufferPool().FlushAllPages("");
+            try {
+                dbManager.closeDBManager();
+            } catch (DBException ex) {
+                Logger.error(ex.getMessage());
+            }
             Logger.error("Some error occurred. Exiting after persistdata...");
         }
     }

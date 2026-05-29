@@ -170,7 +170,20 @@ public class DiskManager {
                 if (!file.createNewFile()) {
                     throw new DBException(ExceptionTypes.BadIOError("File creation failed: " + real_path));
                 }
-                this.filePages.put(filename, 1);
+                // ----------------------------------------------------------
+                // filePages 记录的是"已经被 AllocatePage 分配出去的页数".
+                // 新建的物理文件长度是 0, 并没有任何页被分配, 所以这里以 0 起始.
+                //
+                // 是否在 page 0 上放文件头, 由上层 (RecordManager.CreateFile) 决定:
+                //   * 上层若需要文件头, 必须先调用 AllocatePage() 占住 page 0;
+                //   * 不需要文件头的纯数据文件 (如单元测试里的临时文件),
+                //     直接从 page 0 开始分配数据页即可.
+                //
+                // 之前这里硬编码为 1, 等价于强制把 page 0 当成"已分配的文件头页",
+                // 与 RecordFileHandleTest 的 setup() 模型 (test 不显式 AllocatePage,
+                // 但期望 InsertRecord 第一条记录落在 pageNum = 0) 直接冲突.
+                // ----------------------------------------------------------
+                this.filePages.put(filename, 0);
             } catch (IOException e) {
                 throw new DBException(ExceptionTypes.BadIOError(e.getMessage()));
             }

@@ -2,7 +2,9 @@ package edu.sustech.cs307.physicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.meta.ColumnMeta;
+import edu.sustech.cs307.meta.TabCol;
 import edu.sustech.cs307.record.RecordFileHandle;
+import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.tuple.TempTuple;
 import edu.sustech.cs307.tuple.Tuple;
@@ -11,20 +13,25 @@ import edu.sustech.cs307.value.ValueType;
 import net.sf.jsqlparser.expression.Expression;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 
 public class DeleteOperator implements PhysicalOperator {
     private final SeqScanOperator seqScanOperator;
     private final Expression whereExpr;
+    private final DBManager dbManager;
 
     private int deleteCount;
     private boolean isDone;
 
-    public DeleteOperator(PhysicalOperator inputOperator, Expression whereExpr) {
+    public DeleteOperator(PhysicalOperator inputOperator, Expression whereExpr, DBManager dbManager) {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
             throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
         }
         this.seqScanOperator = seqScanOperator;
         this.whereExpr = whereExpr;
+        this.dbManager = dbManager;
         this.deleteCount = 0;
         this.isDone = false;
     }
@@ -43,7 +50,16 @@ public class DeleteOperator implements PhysicalOperator {
             seqScanOperator.Next();
             TableTuple tuple = (TableTuple) seqScanOperator.Current();
             if (tuple != null && (whereExpr == null || tuple.eval_expr(whereExpr))) {
+                String table = tuple.getTableName();
+                Set<String> indexedColumns = dbManager.getIndexManager().indexedColumns(table);
+                Map<String, Value> indexedRow = new HashMap<>();
+                for (String col : indexedColumns) {
+                    indexedRow.put(col, tuple.getValue(new TabCol(table, col)));
+                }
                 fileHandle.DeleteRecord(tuple.getRID());
+                if (!indexedColumns.isEmpty()) {
+                    dbManager.getIndexManager().afterDelete(table, tuple.getRID(), indexedRow);
+                }
                 deleteCount++;
             }
         }

@@ -21,6 +21,7 @@ public class SeqScanOperator implements PhysicalOperator {
     private TableMeta tableMeta;
     private RecordFileHandle fileHandle;
     private Record currentRecord;
+    private RID currentRid;
 
     private int currentPageNum;
     private int currentSlotNum;
@@ -44,19 +45,23 @@ public class SeqScanOperator implements PhysicalOperator {
         if (!isOpen)
             return false;
         try {
-            // 检查当前页和槽位是否有效，以及是否还有后续记录
-            if (currentPageNum <= totalPages) {
-                while (currentPageNum <= totalPages) {
-                    RecordPageHandle pageHandle = fileHandle.FetchPageHandle(currentPageNum);
+            // 扫描每一页的 bitmap，找到下一条有效记录的位置。
+            // 注意：每次 FetchPageHandle 都会 pin 住该页，必须在用完后 unpin，
+            // 否则反复调用 hasNext() 会造成 pin count 泄漏。
+            while (currentPageNum <= totalPages) {
+                RecordPageHandle pageHandle = fileHandle.FetchPageHandle(currentPageNum);
+                try {
                     while (currentSlotNum < recordsPerPage) {
                         if (BitMap.isSet(pageHandle.bitmap, currentSlotNum)) {
                             return true; // 找到下一条记录
                         }
                         currentSlotNum++;
                     }
-                    currentPageNum++;
-                    currentSlotNum = 0; // 新页从第一个槽位开始
+                } finally {
+                    fileHandle.UnpinPageHandle(currentPageNum, false);
                 }
+                currentPageNum++;
+                currentSlotNum = 0; // 新页从第一个槽位开始
             }
         } catch (DBException e) {
             e.printStackTrace(); // 正确处理异常
@@ -89,21 +94,23 @@ public class SeqScanOperator implements PhysicalOperator {
             return;
         try {
             if (hasNext()) { // 前进到下一条记录
-                RID rid = new RID(currentPageNum, currentSlotNum);
-                currentRecord = fileHandle.GetRecord(rid);
+                // 先记录本次命中的 RID，再推进 cursor，避免跨页后 RID 计算错误。
+                currentRid = new RID(currentPageNum, currentSlotNum);
+                // GetRecord 内部自行 fetch + unpin，pin count 保持平衡。
+                currentRecord = fileHandle.GetRecord(currentRid);
                 currentSlotNum++;
                 if (currentSlotNum >= recordsPerPage) {
                     currentPageNum++;
                     currentSlotNum = 0;
                 }
-                // 只读
-                fileHandle.UnpinPageHandle(currentPageNum, false);
             } else {
                 currentRecord = null;
+                currentRid = null;
             }
         } catch (DBException e) {
             e.printStackTrace(); // 正确处理异常
             currentRecord = null;
+            currentRid = null;
         }
     }
 
@@ -112,7 +119,7 @@ public class SeqScanOperator implements PhysicalOperator {
         if (!isOpen || currentRecord == null) {
             return null;
         }
-        return new TableTuple(tableName, tableMeta, currentRecord, new RID(this.currentPageNum, this.currentSlotNum - 1));
+        return new TableTuple(tableName, tableMeta, currentRecord, currentRid);
     }
 
     @Override
@@ -126,6 +133,7 @@ public class SeqScanOperator implements PhysicalOperator {
         }
         fileHandle = null;
         currentRecord = null;
+        currentRid = null;
         isOpen = false;
     }
 

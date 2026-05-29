@@ -17,7 +17,9 @@ public class TableMeta {
     @JsonIgnore
     public Map<String, ColumnMeta> columns; // 列名 -> 列的元数据
 
-    private Map<String, IndexType> indexes; // 索引信息
+    private Map<String, IndexType> indexes; // 索引名 -> 索引类型
+
+    private Map<String, String> indexColumns; // 索引名 -> 该索引所在的列名
 
     private Map<String, Integer> column_rank;
 
@@ -29,6 +31,7 @@ public class TableMeta {
         this.tableName = tableName;
         this.columns = new HashMap<>();
         this.indexes = new HashMap<>();
+        this.indexColumns = new HashMap<>();
     }
 
     public TableMeta(String tableName, ArrayList<ColumnMeta> columns) {
@@ -36,17 +39,22 @@ public class TableMeta {
         this.columns_list = columns;
         this.columns = new HashMap<>();
         this.indexes = new HashMap<>();
+        this.indexColumns = new HashMap<>();
         for (ColumnMeta column : columns) {
             this.columns.put(column.name, column);
         }
     }
 
     @JsonCreator
-    public TableMeta(@JsonProperty("tableName") String tableName, @JsonProperty("columns_list") ArrayList<ColumnMeta> columns_list, @JsonProperty("indexes")  Map<String, IndexType> indexes) {
+    public TableMeta(@JsonProperty("tableName") String tableName,
+                     @JsonProperty("columns_list") ArrayList<ColumnMeta> columns_list,
+                     @JsonProperty("indexes") Map<String, IndexType> indexes,
+                     @JsonProperty("indexColumns") Map<String, String> indexColumns) {
         this.tableName = tableName;
         this.columns_list = columns_list;
         this.columns = new HashMap<>();
-        this.indexes = indexes;
+        this.indexes = indexes == null ? new HashMap<>() : indexes;
+        this.indexColumns = indexColumns == null ? new HashMap<>() : indexColumns;
         for (var column : columns_list) {
             this.columns.put(column.name, column);
         }
@@ -96,5 +104,23 @@ public class TableMeta {
 
     public void setIndexes(Map<String, IndexType> indexes) {
         this.indexes = indexes;
+    }
+
+    public Map<String, String> getIndexColumns() {
+        return indexColumns;
+    }
+
+    public void setIndexColumns(Map<String, String> indexColumns) {
+        this.indexColumns = indexColumns;
+    }
+
+    /** 该列上是否声明了任何索引. */
+    public boolean hasIndexOnColumn(String columnName) {
+        return indexColumns != null && indexColumns.containsValue(columnName);
+    }
+
+    /** 返回索引名对应的列名, 不存在返回 null. */
+    public String getColumnOfIndex(String indexName) {
+        return indexColumns == null ? null : indexColumns.get(indexName);
     }
 }
