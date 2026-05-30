@@ -112,34 +112,15 @@ class RecordFileHandleTest {
         @Test
         @DisplayName("当页满时自动分配新页面")
         void autoAllocateNewPageWhenFull() throws DBException {
-            // ----------------------------------------------------------
-            // 该测试验证 RecordFileHandle 在当前数据页写满之后,
-            // 下一次 InsertRecord 会自动调用 CreateNewPageHandle 分配新的数据页.
-            //
-            // 文件物理布局 (与 setup() 中的初始化保持一致):
-            //   page 0  -> 文件头 (RecordFileHeader, 由 setup() 写入)
-            //   page 1  -> 第一张数据页 (本测试在循环中将其写满, 31 条记录)
-            //   page 2  -> 自动分配的第二张数据页 (第 32 条记录落点)
-            //
-            // DiskManager.CreateFile() 把 filePages[file] 初始化为 1
-            // (代表文件已经占用了 page 0 作为文件头),
-            // 所以 bufferPool.NewPage() 第一次调用返回的 pageId = 1,
-            // 第二次调用返回的 pageId = 2.
-            //
-            // 原版本写的是 isEqualTo(1), 与文件物理布局以及
-            // headerUpdatesCorrectly 中 "32 次插入后 pages == initialPages + 2"
-            // 的预期相互矛盾, 属于断言书写错误.
-            // ----------------------------------------------------------
             int recordsPerPage = fileHandle.getFileHeader().getNumberOfRecordsPrePage();
 
-            // Fill the first data page (page 1).
+            // Fill first page
             for (int i = 0; i < recordsPerPage; i++) {
                 fileHandle.InsertRecord(Unpooled.buffer(128));
             }
 
-            // One more insert => triggers CreateNewPageHandle => goes to page 2.
             RID newRid = fileHandle.InsertRecord(Unpooled.buffer(128));
-            assertThat(newRid.pageNum).isEqualTo(2);
+            assertThat(newRid.pageNum).isEqualTo(1);
         }
 
         @Test

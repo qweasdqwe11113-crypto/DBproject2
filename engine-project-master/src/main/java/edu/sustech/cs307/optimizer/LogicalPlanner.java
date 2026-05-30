@@ -100,6 +100,12 @@ public class LogicalPlanner {
             Pattern.compile("(?i)^(?:DESC|DESCRIBE)\\s+([A-Za-z_][A-Za-z0-9_]*)$");
     private static final Pattern DROP_TABLE_PATTERN =
             Pattern.compile("(?i)^DROP\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)$");
+    private static final Pattern CREATE_INDEX_PATTERN =
+            Pattern.compile("(?i)^CREATE\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ON\\s+"
+                    + "([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)$");
+    private static final Pattern DROP_INDEX_PATTERN =
+            Pattern.compile("(?i)^DROP\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)"
+                    + "(?:\\s+ON\\s+[A-Za-z_][A-Za-z0-9_]*)?$");
 
     public static LogicalOperator resolveAndPlan(DBManager dbManager, String sql) throws DBException {
         if (sql == null || sql.isBlank()) {
@@ -115,6 +121,9 @@ public class LogicalPlanner {
             return null;
         }
         if (handleManualDropTableCommand(dbManager, sql)) {
+            return null;
+        }
+        if (handleManualIndexCommand(dbManager, sql)) {
             return null;
         }
 
@@ -352,6 +361,27 @@ public class LogicalPlanner {
         }
         dbManager.dropTable(matcher.group(1));
         return true;
+    }
+
+    /**
+     * 手写解析 CREATE INDEX / DROP INDEX (jsqlparser 对这两条命令支持参差,
+     * 与项目里其它 DDL 一样走正则更稳妥):
+     *   CREATE INDEX idx ON t(col)
+     *   DROP   INDEX idx [ON t]
+     */
+    private static boolean handleManualIndexCommand(DBManager dbManager, String sql) throws DBException {
+        String normalizedSql = normalizeSql(sql);
+        Matcher create = CREATE_INDEX_PATTERN.matcher(normalizedSql);
+        if (create.matches()) {
+            dbManager.createIndex(create.group(2), create.group(1), create.group(3));
+            return true;
+        }
+        Matcher drop = DROP_INDEX_PATTERN.matcher(normalizedSql);
+        if (drop.matches()) {
+            dbManager.dropIndex(drop.group(1));
+            return true;
+        }
+        return false;
     }
 
     // =====================================================================

@@ -42,18 +42,25 @@ public class CreateTableExecutor implements DMLExecutor {
                 throw new DBException(
                         ExceptionTypes.InvalidSQL(sql, String.format("INVALID COLUMN NAME = %s", colName)));
             }
-            ColDataType colType = col.getColDataType();
-            if (colType.getDataType().equalsIgnoreCase("char")) {
-                colMapping.add(new ColumnMeta(table, colName, ValueType.CHAR, Value.CHAR_SIZE, offset));
-                offset += Value.CHAR_SIZE;
-            } else if (colType.getDataType().equalsIgnoreCase("int")) {
-                colMapping.add(new ColumnMeta(table, colName, ValueType.INTEGER, Value.INT_SIZE, offset));
-                offset += Value.INT_SIZE;
-            } else if (colType.getDataType().equalsIgnoreCase("float")) {
-                colMapping.add(new ColumnMeta(table, colName, ValueType.FLOAT, Value.FLOAT_SIZE, offset));
-                offset += Value.FLOAT_SIZE;
-            } else {
-                throw new DBException(ExceptionTypes.UnsupportedCommand(String.format("CREATE TABLE %s", table)));
+            // Accept the PDF-required type names INT / VARCHAR / DOUBLE as well as the
+            // framework's original char / int / float. VARCHAR maps to the fixed-length
+            // CHAR storage and DOUBLE maps to the 8-byte FLOAT storage.
+            String dataType = col.getColDataType().getDataType().toLowerCase();
+            switch (dataType) {
+                case "char", "varchar", "string" -> {
+                    colMapping.add(new ColumnMeta(table, colName, ValueType.CHAR, Value.CHAR_SIZE, offset));
+                    offset += Value.CHAR_SIZE;
+                }
+                case "int", "integer" -> {
+                    colMapping.add(new ColumnMeta(table, colName, ValueType.INTEGER, Value.INT_SIZE, offset));
+                    offset += Value.INT_SIZE;
+                }
+                case "float", "double" -> {
+                    colMapping.add(new ColumnMeta(table, colName, ValueType.FLOAT, Value.FLOAT_SIZE, offset));
+                    offset += Value.FLOAT_SIZE;
+                }
+                default -> throw new DBException(
+                        ExceptionTypes.UnsupportedCommand(String.format("CREATE TABLE %s", table)));
             }
         }
         dbManager.createTable(table, colMapping);

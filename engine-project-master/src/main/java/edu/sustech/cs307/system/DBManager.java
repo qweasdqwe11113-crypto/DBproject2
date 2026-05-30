@@ -44,6 +44,7 @@ public class DBManager {
     private final RecordManager recordManager;
     private TransactionManager transactionManager;
     private final IntFunction<PageReplacer> replacerFactory;
+    private final IndexManager indexManager = new IndexManager();
 
     public DBManager(DiskManager diskManager, BufferPool bufferPool, RecordManager recordManager,
                      MetaManager metaManager) {
@@ -83,6 +84,53 @@ public class DBManager {
 
     public MetaManager getMetaManager() {
         return metaManager;
+    }
+
+    public IndexManager getIndexManager() {
+        return indexManager;
+    }
+
+    /**
+     * 创建索引: 在 {@code table.column} 上建立一棵内存 B+ 树, 并把索引声明写进 JSON 元数据.
+     * 构建完成后立即按层打印整棵树 (满足 Task3 "打印每个节点" 的要求).
+     */
+    public void createIndex(String tableName, String indexName, String columnName) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        if (tableMeta.getColumnMeta(columnName) == null) {
+            throw new DBException(ExceptionTypes.ColumnDoesNotExist(columnName));
+        }
+        if (tableMeta.getIndexes() != null && tableMeta.getIndexes().containsKey(indexName)) {
+            Logger.warn("Index already exists: {}", indexName);
+            return;
+        }
+        tableMeta.getIndexes().put(indexName, TableMeta.IndexType.BTREE);
+        tableMeta.getIndexColumns().put(indexName, columnName);
+        metaManager.saveToJson();
+
+        var index = indexManager.buildIndex(this, tableName, columnName);
+        Logger.info("Created index {} on {}({}). B+ tree:", indexName, tableName, columnName);
+        for (String line : index.printByLevel().split("\\R")) {
+            Logger.info(line);
+        }
+    }
+
+    /** 删除索引: 从元数据与内存注册表中移除. */
+    public void dropIndex(String indexName) throws DBException {
+        for (String tableName : metaManager.getTableNames()) {
+            TableMeta tableMeta = metaManager.getTable(tableName);
+            if (tableMeta.getIndexes() != null && tableMeta.getIndexes().containsKey(indexName)) {
+                String column = tableMeta.getColumnOfIndex(indexName);
+                tableMeta.getIndexes().remove(indexName);
+                tableMeta.getIndexColumns().remove(indexName);
+                metaManager.saveToJson();
+                if (column != null) {
+                    indexManager.removeColumnIndex(tableName, column);
+                }
+                Logger.info("Dropped index: {}", indexName);
+                return;
+            }
+        }
+        Logger.warn("Index does not exist: {}", indexName);
     }
 
     public boolean isDirExists(String dir) {
@@ -197,6 +245,7 @@ public class DBManager {
         }
 
         metaManager.dropTable(table_name);
+        indexManager.dropTable(table_name);
         Logger.info("Successfully dropped table: {}", table_name);
     }
 
@@ -242,7 +291,8 @@ public class DBManager {
      * @throws DBException if an error occurs during the closing process
      */
     public void closeDBManager() throws DBException {
-        this.bufferPool.FlushAllPages(null);
+        // "" means flush every file; passing null would NPE in FlushAllPages.
+        this.bufferPool.FlushAllPages("");
         DiskManager.dump_disk_manager_meta(this.diskManager);
         this.metaManager.saveToJson();
     }

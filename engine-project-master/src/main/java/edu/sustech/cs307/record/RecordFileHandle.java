@@ -168,7 +168,7 @@ public class RecordFileHandle {
     }
 
     public void UnpinPageHandle(int pageId, boolean is_dirty) throws DBException {
-        bufferPool.unpin_page(new PagePosition(filename, pageId), is_dirty);
+        bufferPool.unpin_page(new PagePosition(filename, pageId * Page.DEFAULT_PAGE_SIZE), is_dirty);
     }
 
     /**

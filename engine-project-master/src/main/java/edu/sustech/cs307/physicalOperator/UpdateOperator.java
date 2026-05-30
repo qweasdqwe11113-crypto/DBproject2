@@ -10,9 +10,13 @@ import edu.sustech.cs307.tuple.TempTuple;
 import edu.sustech.cs307.tuple.Tuple;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.ArrayList;
 
+import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.value.Value;
 import edu.sustech.cs307.value.ValueType;
 import io.netty.buffer.ByteBuf;
@@ -25,12 +29,13 @@ public class UpdateOperator implements PhysicalOperator {
     private final String tableName;
     private final UpdateSet updateSet;
     private final Expression whereExpr;
+    private final DBManager dbManager;
 
     private int updateCount;
     private boolean isDone;
 
     public UpdateOperator(PhysicalOperator inputOperator, String tableName, UpdateSet updateSet,
-                          Expression whereExpr) {
+                          Expression whereExpr, DBManager dbManager) {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
             throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
         }
@@ -38,6 +43,7 @@ public class UpdateOperator implements PhysicalOperator {
         this.tableName = tableName;
         this.updateSet = updateSet;
         this.whereExpr = whereExpr;
+        this.dbManager = dbManager;
         this.updateCount = 0;
         this.isDone = false;
     }
@@ -85,6 +91,21 @@ public class UpdateOperator implements PhysicalOperator {
                 }
 
                 fileHandle.UpdateRecord(tuple.getRID(), buffer);
+
+                // 索引维护: 对建有索引且发生变化的列, 删旧键插新键.
+                Set<String> indexedColumns = dbManager.getIndexManager().indexedColumns(tuple.getTableName());
+                if (!indexedColumns.isEmpty()) {
+                    Map<String, Value> oldRow = new HashMap<>();
+                    Map<String, Value> newRow = new HashMap<>();
+                    for (int k = 0; k < schema.length; k++) {
+                        String col = schema[k].getColumnName();
+                        if (indexedColumns.contains(col)) {
+                            oldRow.put(col, oldValues[k]);
+                            newRow.put(col, newValues.get(k));
+                        }
+                    }
+                    dbManager.getIndexManager().afterUpdate(tuple.getTableName(), tuple.getRID(), oldRow, newRow);
+                }
                 updateCount++;
             }
         }

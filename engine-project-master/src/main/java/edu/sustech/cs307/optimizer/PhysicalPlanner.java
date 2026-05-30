@@ -10,13 +10,19 @@ import edu.sustech.cs307.value.ValueType;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.meta.TableMeta;
 
+import edu.sustech.cs307.index.BPlusTreeIndex;
+
+import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.StringValue;
+import net.sf.jsqlparser.expression.operators.relational.ComparisonOperator;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.Values;
+import org.pmw.tinylog.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,19 +94,111 @@ public class PhysicalPlanner {
             return new SeqScanOperator(tableName, dbManager);
         }
 
-        // Check if index exists for the table (for now, assume RBTreeIndex always
-        // exists if index is defined)
-        if (tableMeta.getIndexes() != null && !tableMeta.getIndexes().isEmpty()) {
-            throw new RuntimeException("unimplement");
-        } else {
-            return new SeqScanOperator(tableName, dbManager);
-        }
+        // 裸表扫描 (无谓词, 或作为 update/delete 的输入) 一律用 SeqScan;
+        // 走索引的判断在 handleFilter 里按 WHERE 谓词决定。
+        return new SeqScanOperator(tableName, dbManager);
     }
 
     private static PhysicalOperator handleFilter(DBManager dbManager, LogicalFilterOperator logicalFilterOp)
             throws DBException {
+        // 若 WHERE 是一个简单比较谓词且其列上建有 B+ 树索引, 走 IndexScan,
+        // 否则退回到 SeqScan + Filter.
+        PhysicalOperator indexScan = tryIndexScan(dbManager, logicalFilterOp);
+        if (indexScan != null) {
+            // 仍用同一谓词包一层 Filter 保证语义正确 (对 = 是冗余但无害).
+            return new FilterOperator(indexScan, logicalFilterOp.getWhereExpr());
+        }
         PhysicalOperator inputOp = generateOperator(dbManager, logicalFilterOp.getChild());
         return new FilterOperator(inputOp, logicalFilterOp.getWhereExpr());
+    }
+
+    /**
+     * 尝试为过滤算子生成索引扫描. 仅当:
+     * 直接子算子是单表扫描, 且 WHERE 是 "列 OP 常量" (OP ∈ {=,<,<=,>,>=}) 的比较,
+     * 且该列上存在 (或可惰性构建) B+ 树索引时返回 IndexScanOperator, 否则返回 null.
+     */
+    private static PhysicalOperator tryIndexScan(DBManager dbManager, LogicalFilterOperator logicalFilterOp)
+            throws DBException {
+        if (!(logicalFilterOp.getChild() instanceof LogicalTableScanOperator tableScan)) {
+            return null;
+        }
+        Expression where = logicalFilterOp.getWhereExpr();
+        if (!(where instanceof ComparisonOperator) || !(where instanceof BinaryExpression cmp)) {
+            return null;
+        }
+        String op = cmp.getStringExpression();
+        if (!("=".equals(op) || "<".equals(op) || "<=".equals(op) || ">".equals(op) || ">=".equals(op))) {
+            return null;
+        }
+
+        Expression left = cmp.getLeftExpression();
+        Expression right = cmp.getRightExpression();
+        Column column;
+        Expression literal;
+        boolean columnOnLeft;
+        if (left instanceof Column c && isLiteral(right)) {
+            column = c;
+            literal = right;
+            columnOnLeft = true;
+        } else if (right instanceof Column c && isLiteral(left)) {
+            column = c;
+            literal = left;
+            columnOnLeft = false;
+        } else {
+            return null;
+        }
+
+        String tableName = tableScan.getTableName();
+        String columnName = column.getColumnName();
+        TableMeta tableMeta;
+        try {
+            tableMeta = dbManager.getMetaManager().getTable(tableName);
+        } catch (DBException e) {
+            return null;
+        }
+        ColumnMeta columnMeta = tableMeta.getColumnMeta(columnName);
+        if (columnMeta == null) {
+            return null;
+        }
+        Value key = literalToValue(literal, columnMeta.type);
+        if (key == null) {
+            return null;
+        }
+
+        BPlusTreeIndex index = dbManager.getIndexManager().getOrBuildIndex(dbManager, tableName, columnName);
+        if (index == null) {
+            return null;
+        }
+        String effectiveOp = columnOnLeft ? op : invertOperator(op);
+        Logger.info("Using IndexScan on {}({}) {} {}", tableName, columnName, effectiveOp, key);
+        return new IndexScanOperator(dbManager, tableName, tableMeta, index, effectiveOp, key);
+    }
+
+    private static boolean isLiteral(Expression expr) {
+        return expr instanceof LongValue || expr instanceof DoubleValue || expr instanceof StringValue;
+    }
+
+    private static Value literalToValue(Expression literal, ValueType columnType) {
+        if (literal instanceof LongValue lv && columnType == ValueType.INTEGER) {
+            return new Value(lv.getValue());
+        }
+        if (literal instanceof DoubleValue dv && columnType == ValueType.FLOAT) {
+            return new Value(dv.getValue());
+        }
+        if (literal instanceof StringValue sv && columnType == ValueType.CHAR) {
+            return new Value(sv.getValue());
+        }
+        return null;
+    }
+
+    private static String invertOperator(String op) {
+        return switch (op) {
+            case "<" -> ">";
+            case "<=" -> ">=";
+            case ">" -> "<";
+            case ">=" -> "<=";
+            default -> op; // "="
+        };
     }
 
     private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp)
@@ -250,12 +348,12 @@ public class PhysicalPlanner {
         if (logicalUpdateOp.getColumns().size() != 1 ) {
             throw new DBException(ExceptionTypes.InvalidSQL("INSERT", "Unsupported expression list"));
         }
-        return new UpdateOperator(scanner, logicalUpdateOp.getTableName(), logicalUpdateOp.getColumns().get(0), logicalUpdateOp.getExpression());
+        return new UpdateOperator(scanner, logicalUpdateOp.getTableName(), logicalUpdateOp.getColumns().get(0), logicalUpdateOp.getExpression(), dbManager);
     }
 
     private static PhysicalOperator handleDelete(DBManager dbManager, LogicalDeleteOperator logicalDeleteOp)
             throws DBException {
         PhysicalOperator scanner = generateOperator(dbManager, logicalDeleteOp.getChild());
-        return new DeleteOperator(scanner, logicalDeleteOp.getWhereExpr());
+        return new DeleteOperator(scanner, logicalDeleteOp.getWhereExpr(), dbManager);
     }
 }
